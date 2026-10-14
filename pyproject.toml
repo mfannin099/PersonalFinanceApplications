@@ -1,0 +1,19 @@
+[project]
+name = "personal-finance-applications"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.12"
+dependencies = [
+    "altair>=6.3.0",
+    "numpy>=2.5.4",
+    "pandas>=3.0.6",
+    "streamlit>=1.66.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
