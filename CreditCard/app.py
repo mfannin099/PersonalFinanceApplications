@@ -4,15 +4,16 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
-from CreditCard.categorize import (
+from categorize import (
     CATEGORIES,
     categorize_transactions,
     load_overrides,
     save_override,
     uncategorized_merchants,
 )
-from CreditCard.cleaning import clean_statement
+from cleaning import clean_statement
 
+st.set_page_config(page_title="Credit Card Dashboard", page_icon="💳", layout="wide")
 st.title("💳 Credit Card Statement Dashboard")
 
 uploaded_file = st.file_uploader("Choose a CSV file - Credit Card Statement", type=["csv"])
