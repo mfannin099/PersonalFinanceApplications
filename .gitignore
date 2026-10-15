@@ -7,3 +7,4 @@ __pycache__/
 # Personal/local data — merchant override rules, uploaded statement CSVs
 # (may contain real transaction data), never shared or committed.
 CreditCard/data/
+CreditCard/data/union_statements.py
