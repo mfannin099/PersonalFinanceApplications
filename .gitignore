@@ -4,5 +4,6 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 
-# User-specific merchant categorization rules — personal, not shared.
-CreditCard/data/merchant_overrides.json
+# Personal/local data — merchant override rules, uploaded statement CSVs
+# (may contain real transaction data), never shared or committed.
+CreditCard/data/
