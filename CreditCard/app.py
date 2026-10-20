@@ -271,7 +271,8 @@ st.subheader("🆕 New Merchants")
 days_threshold = st.slider("Days since first seen", min_value=15, max_value=180, value=60, step=15)
 first_seen = analysis_df.groupby("Description")["Transaction Date"].min().reset_index(name="first_seen")
 analysis_df = analysis_df.merge(first_seen, on="Description", how="left")
-analysis_df["days_since_first"] = (pd.Timestamp.today() - analysis_df["first_seen"]).dt.days
+statement_end = analysis_df["Transaction Date"].max()
+analysis_df["days_since_first"] = (statement_end - analysis_df["first_seen"]).dt.days
 analysis_df["is_new_merchant"] = analysis_df["days_since_first"] <= days_threshold
 
 new_merchant_summary = (
