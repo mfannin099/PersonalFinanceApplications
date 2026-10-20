@@ -64,8 +64,12 @@ sort_by = st.selectbox("📊 Sort data by:", sort_options)
 sort_order = st.radio("Sort order:", ["Ascending", "Descending"], horizontal=True)
 df = df.sort_values(by=sort_by, ascending=(sort_order == "Ascending"))
 
-# --- Merchant filter ---
+# --- Sidebar filters ---
 descriptions = df["Description"].dropna().unique()
+categories = df["Category"].dropna().unique()
+min_date, max_date = df["Transaction Date"].min().date(), df["Transaction Date"].max().date()
+min_amount, max_amount = float(df["Amount"].min()), float(df["Amount"].max())
+
 with st.sidebar:
     st.header("Filters")
     selected_merchants = st.multiselect(
@@ -73,8 +77,34 @@ with st.sidebar:
         options=sorted(descriptions),
         default=descriptions,
     )
+    selected_categories = st.multiselect(
+        "Select Category(s):",
+        options=sorted(categories),
+        default=categories,
+    )
+    date_range = st.date_input(
+        "Transaction Date Range:",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date,
+    )
+    amount_range = st.slider(
+        "Transaction Amount Range ($):",
+        min_value=min_amount,
+        max_value=max_amount if max_amount > min_amount else min_amount + 1.0,
+        value=(min_amount, max_amount),
+    )
 
-filtered_df = df[df["Description"].isin(selected_merchants)]
+start_date, end_date = date_range if len(date_range) == 2 else (min_date, max_date)
+
+filtered_df = df[
+    df["Description"].isin(selected_merchants)
+    & df["Category"].isin(selected_categories)
+    & (df["Transaction Date"].dt.date >= start_date)
+    & (df["Transaction Date"].dt.date <= end_date)
+    & (df["Amount"] >= amount_range[0])
+    & (df["Amount"] <= amount_range[1])
+]
 
 edited_df = st.data_editor(
     filtered_df,
@@ -126,12 +156,13 @@ with col5:
     st.metric("Net Expense", f"${net_expense:,.2f}")
 
 st.header("Spending Overview")
+top_n = st.slider("Number of values to show in bar charts:", min_value=3, max_value=25, value=10, step=1)
 col1, col2, col3 = st.columns(3)
 
 with col1:
     st.markdown("### Spending by Category")
     category_spend = (
-        edited_df.groupby("Category")["Amount"].sum().reset_index().sort_values("Amount", ascending=False).head(10)
+        edited_df.groupby("Category")["Amount"].sum().reset_index().sort_values("Amount", ascending=False).head(top_n)
     )
     chart1 = (
         alt.Chart(category_spend)
@@ -149,7 +180,7 @@ with col1:
 with col2:
     st.markdown("### Top Merchants by Spend")
     merchant_spend = (
-        edited_df.groupby("Description")["Amount"].sum().reset_index().sort_values("Amount", ascending=False).head(10)
+        edited_df.groupby("Description")["Amount"].sum().reset_index().sort_values("Amount", ascending=False).head(top_n)
     )
     chart2 = (
         alt.Chart(merchant_spend)
@@ -170,7 +201,7 @@ with col3:
         .count()
         .reset_index(name="Transaction Count")
         .sort_values("Transaction Count", ascending=False)
-        .head(10)
+        .head(top_n)
     )
     chart3 = (
         alt.Chart(merchant_freq)
