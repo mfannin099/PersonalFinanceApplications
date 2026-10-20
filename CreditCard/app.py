@@ -299,29 +299,43 @@ st.markdown("### Spending by Category Over Time")
 category_time_chart_type = st.radio(
     "Chart type:", ["Stacked Area", "Lines"], horizontal=True, key="category_time_chart_type"
 )
-category_time_spend = spend_by_period_and_category(edited_df, freq=freq)
-
-category_time_encoding = dict(
-    x=alt.X("Transaction Date:T", title=agg_option, axis=alt.Axis(format="%b %d, %Y")),
-    y=alt.Y("Amount:Q", title="Total Spent ($)"),
-    color=alt.Color("Category:N", legend=alt.Legend(title="Category")),
-    tooltip=[
-        "Category",
-        alt.Tooltip("Transaction Date:T", title=agg_option),
-        alt.Tooltip("Amount:Q", format="$.2f", title="Total Spent"),
-    ],
+category_time_categories = sorted(edited_df["Category"].dropna().unique())
+selected_category_time_categories = st.multiselect(
+    "Category(s) to show:",
+    options=category_time_categories,
+    default=category_time_categories,
+    key="category_time_categories",
 )
 
-if category_time_chart_type == "Stacked Area":
-    category_time_chart = alt.Chart(category_time_spend).mark_area().encode(**category_time_encoding)
+if not selected_category_time_categories:
+    st.info("Select at least one category to see its spend over time.")
 else:
-    category_time_chart = (
-        alt.Chart(category_time_spend)
-        .mark_line(point=alt.OverlayMarkDef(filled=True, size=40))
-        .encode(**category_time_encoding)
+    category_time_df = edited_df[edited_df["Category"].isin(selected_category_time_categories)]
+    category_time_spend = spend_by_period_and_category(
+        category_time_df, freq=freq, top_n=len(selected_category_time_categories)
     )
 
-st.altair_chart(category_time_chart.properties(height=400).interactive(), use_container_width=True)
+    category_time_encoding = dict(
+        x=alt.X("Transaction Date:T", title=agg_option, axis=alt.Axis(format="%b %d, %Y")),
+        y=alt.Y("Amount:Q", title="Total Spent ($)"),
+        color=alt.Color("Category:N", legend=alt.Legend(title="Category")),
+        tooltip=[
+            "Category",
+            alt.Tooltip("Transaction Date:T", title=agg_option),
+            alt.Tooltip("Amount:Q", format="$.2f", title="Total Spent"),
+        ],
+    )
+
+    if category_time_chart_type == "Stacked Area":
+        category_time_chart = alt.Chart(category_time_spend).mark_area().encode(**category_time_encoding)
+    else:
+        category_time_chart = (
+            alt.Chart(category_time_spend)
+            .mark_line(point=alt.OverlayMarkDef(filled=True, size=40))
+            .encode(**category_time_encoding)
+        )
+
+    st.altair_chart(category_time_chart.properties(height=400).interactive(), use_container_width=True)
 
 # --- Recurring merchants ---
 st.header("🔍 Money Saving Opportunities")
