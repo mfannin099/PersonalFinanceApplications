@@ -182,24 +182,6 @@ with col1:
     )
     st.altair_chart(chart1, use_container_width=True)
 
-    st.markdown("### Share of Wallet")
-    wallet_df = share_of_wallet(edited_df)
-    donut = (
-        alt.Chart(wallet_df)
-        .mark_arc(innerRadius=60)
-        .encode(
-            theta=alt.Theta("Amount:Q"),
-            color=alt.Color("Category:N", legend=alt.Legend(title="Category")),
-            tooltip=[
-                "Category",
-                alt.Tooltip("Amount:Q", format="$.2f"),
-                alt.Tooltip("pct_of_total:Q", format=".1f", title="% of Total"),
-            ],
-        )
-        .properties(height=300)
-    )
-    st.altair_chart(donut, use_container_width=True)
-
 with col2:
     st.markdown("### Top Merchants by Spend")
     merchant_spend = (
@@ -238,19 +220,57 @@ with col3:
     )
     st.altair_chart(chart3, use_container_width=True)
 
+st.markdown("### Share of Wallet")
+wallet_df = share_of_wallet(edited_df)
+wallet_col1, wallet_col2, wallet_col3 = st.columns([1, 2, 1])
+with wallet_col2:
+    donut = (
+        alt.Chart(wallet_df)
+        .mark_arc(innerRadius=80)
+        .encode(
+            theta=alt.Theta("Amount:Q"),
+            color=alt.Color("Category:N", legend=alt.Legend(title="Category")),
+            tooltip=[
+                "Category",
+                alt.Tooltip("Amount:Q", format="$.2f"),
+                alt.Tooltip("pct_of_total:Q", format=".1f", title="% of Total"),
+            ],
+        )
+        .properties(height=450)
+    )
+    st.altair_chart(donut, use_container_width=True)
+
 st.markdown("### Spending by Day of Week")
 weekday_spend = spend_by_weekday(edited_df)
-weekday_chart = (
-    alt.Chart(weekday_spend)
-    .mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5, color="#6baed6")
-    .encode(
-        x=alt.X("Weekday:N", sort=weekday_spend["Weekday"].tolist(), title="Day of Week"),
-        y=alt.Y("Amount:Q", title="Total Spent ($)"),
-        tooltip=["Weekday", alt.Tooltip("Amount:Q", format="$.2f")],
+weekday_col1, weekday_col2 = st.columns(2)
+
+with weekday_col1:
+    st.markdown("###### Total Spend")
+    total_weekday_chart = (
+        alt.Chart(weekday_spend)
+        .mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5, color="#6baed6")
+        .encode(
+            x=alt.X("Weekday:N", sort=weekday_spend["Weekday"].tolist(), title="Day of Week"),
+            y=alt.Y("Total:Q", title="Total Spent ($)"),
+            tooltip=["Weekday", alt.Tooltip("Total:Q", format="$.2f")],
+        )
+        .properties(height=300)
     )
-    .properties(height=300)
-)
-st.altair_chart(weekday_chart, use_container_width=True)
+    st.altair_chart(total_weekday_chart, use_container_width=True)
+
+with weekday_col2:
+    st.markdown("###### Average Spend per Day")
+    avg_weekday_chart = (
+        alt.Chart(weekday_spend)
+        .mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5, color="#f58518")
+        .encode(
+            x=alt.X("Weekday:N", sort=weekday_spend["Weekday"].tolist(), title="Day of Week"),
+            y=alt.Y("Average:Q", title="Average Spent ($)"),
+            tooltip=["Weekday", alt.Tooltip("Average:Q", format="$.2f")],
+        )
+        .properties(height=300)
+    )
+    st.altair_chart(avg_weekday_chart, use_container_width=True)
 
 st.subheader("Spending Over Time")
 agg_option = st.radio("Aggregate spending by:", ("Daily", "Weekly", "Monthly"), horizontal=True)

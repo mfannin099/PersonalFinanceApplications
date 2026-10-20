@@ -67,14 +67,29 @@ def test_spend_by_weekday_orders_monday_through_sunday():
     assert result["Weekday"].tolist() == [
         "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
     ]
-    assert result.loc[result["Weekday"] == "Monday", "Amount"].iloc[0] == 10
-    assert result.loc[result["Weekday"] == "Sunday", "Amount"].iloc[0] == 5
+    assert result.loc[result["Weekday"] == "Monday", "Total"].iloc[0] == 10
+    assert result.loc[result["Weekday"] == "Sunday", "Total"].iloc[0] == 5
 
 
 def test_spend_by_weekday_fills_missing_days_with_zero():
     df = _df([{"Transaction Date": "2024-01-01", "Amount": 10}])  # only Monday
     result = spend_by_weekday(df)
-    assert result.loc[result["Weekday"] == "Tuesday", "Amount"].iloc[0] == 0
+    assert result.loc[result["Weekday"] == "Tuesday", "Total"].iloc[0] == 0
+    assert result.loc[result["Weekday"] == "Tuesday", "Average"].iloc[0] == 0
+
+
+def test_spend_by_weekday_average_is_mean_of_daily_totals_not_transactions():
+    # Two Mondays: $100 (one purchase) and $20 (two $10 purchases) -> avg daily total is $60.
+    df = _df(
+        [
+            {"Transaction Date": "2024-01-01", "Amount": 100},
+            {"Transaction Date": "2024-01-08", "Amount": 10},
+            {"Transaction Date": "2024-01-08", "Amount": 10},
+        ]
+    )
+    result = spend_by_weekday(df)
+    assert result.loc[result["Weekday"] == "Monday", "Total"].iloc[0] == 120
+    assert result.loc[result["Weekday"] == "Monday", "Average"].iloc[0] == 60
 
 
 def test_share_of_wallet_percentages_sum_to_100():

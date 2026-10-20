@@ -43,13 +43,26 @@ def category_zscores(df: pd.DataFrame, z_threshold: float) -> pd.DataFrame:
 
 
 def spend_by_weekday(df: pd.DataFrame) -> pd.DataFrame:
-    """Total spend by day of week, ordered Monday through Sunday."""
-    weekday_spend = (
-        df.assign(Weekday=df["Transaction Date"].dt.day_name())
-        .groupby("Weekday")["Amount"]
+    """Total and average-per-day spend by day of week, Monday through Sunday.
+
+    "Average" is the mean of each individual day's total (e.g. the average
+    of all Saturdays' totals), not the mean transaction amount — that way a
+    weekday with many small purchases isn't diluted relative to one with
+    few large ones.
+    """
+    daily_totals = (
+        df.assign(Date=df["Transaction Date"].dt.date)
+        .groupby("Date")["Amount"]
         .sum()
+        .reset_index()
+    )
+    daily_totals["Weekday"] = pd.to_datetime(daily_totals["Date"]).dt.day_name()
+
+    weekday_spend = (
+        daily_totals.groupby("Weekday")["Amount"]
+        .agg(Total="sum", Average="mean")
         .reindex(WEEKDAY_ORDER, fill_value=0)
-        .reset_index(name="Amount")
+        .reset_index()
     )
     return weekday_spend
 
