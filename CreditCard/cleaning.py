@@ -40,4 +40,6 @@ def clean_statement(df: pd.DataFrame) -> pd.DataFrame:
     df["Was Venmoed"] = False
     df["Split Count"] = df.get("Split Count", 1)
 
+    df = df.drop(columns=["Source File", "Memo", "Type"], errors="ignore")
+
     return df.reset_index(drop=True)
