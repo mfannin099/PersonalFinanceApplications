@@ -67,6 +67,23 @@ def spend_by_weekday(df: pd.DataFrame) -> pd.DataFrame:
     return weekday_spend
 
 
+def transactions_for_period(df: pd.DataFrame, period_label, freq: str) -> pd.DataFrame:
+    """Return the transactions falling in the same resample bucket as ``period_label``.
+
+    ``period_label`` is one of the "Transaction Date" values produced by
+    ``df.resample(freq)[...]`` — i.e. a value already plotted on the x-axis
+    of the Spending Over Time chart — so selecting a point on that chart can
+    look up exactly the rows that fed it.
+    """
+    if freq == "D":
+        mask = df["Transaction Date"].dt.date == pd.Timestamp(period_label).date()
+    elif freq == "W":
+        mask = df["Transaction Date"].dt.to_period("W") == pd.Period(period_label, freq="W")
+    else:
+        mask = df["Transaction Date"].dt.to_period("M") == pd.Period(period_label, freq="M")
+    return df[mask]
+
+
 def share_of_wallet(df: pd.DataFrame) -> pd.DataFrame:
     """Category totals plus each category's percentage of total spend."""
     category_totals = df.groupby("Category")["Amount"].sum().reset_index()
