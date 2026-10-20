@@ -4,6 +4,12 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
+from analytics import (
+    category_zscores,
+    share_of_wallet,
+    spend_by_period_and_category,
+    spend_by_weekday,
+)
 from categorize import (
     CATEGORIES,
     categorize_transactions,
@@ -214,6 +220,58 @@ with col3:
     )
     st.altair_chart(chart3, use_container_width=True)
 
+st.markdown("### Share of Wallet")
+wallet_df = share_of_wallet(edited_df)
+wallet_col1, wallet_col2, wallet_col3 = st.columns([1, 2, 1])
+with wallet_col2:
+    donut = (
+        alt.Chart(wallet_df)
+        .mark_arc(innerRadius=80)
+        .encode(
+            theta=alt.Theta("Amount:Q"),
+            color=alt.Color("Category:N", legend=alt.Legend(title="Category")),
+            tooltip=[
+                "Category",
+                alt.Tooltip("Amount:Q", format="$.2f"),
+                alt.Tooltip("pct_of_total:Q", format=".1f", title="% of Total"),
+            ],
+        )
+        .properties(height=450)
+    )
+    st.altair_chart(donut, use_container_width=True)
+
+st.markdown("### Spending by Day of Week")
+weekday_spend = spend_by_weekday(edited_df)
+weekday_col1, weekday_col2 = st.columns(2)
+
+with weekday_col1:
+    st.markdown("###### Total Spend")
+    total_weekday_chart = (
+        alt.Chart(weekday_spend)
+        .mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5, color="#6baed6")
+        .encode(
+            x=alt.X("Weekday:N", sort=weekday_spend["Weekday"].tolist(), title="Day of Week"),
+            y=alt.Y("Total:Q", title="Total Spent ($)"),
+            tooltip=["Weekday", alt.Tooltip("Total:Q", format="$.2f")],
+        )
+        .properties(height=300)
+    )
+    st.altair_chart(total_weekday_chart, use_container_width=True)
+
+with weekday_col2:
+    st.markdown("###### Average Spend per Day")
+    avg_weekday_chart = (
+        alt.Chart(weekday_spend)
+        .mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5, color="#f58518")
+        .encode(
+            x=alt.X("Weekday:N", sort=weekday_spend["Weekday"].tolist(), title="Day of Week"),
+            y=alt.Y("Average:Q", title="Average Spent ($)"),
+            tooltip=["Weekday", alt.Tooltip("Average:Q", format="$.2f")],
+        )
+        .properties(height=300)
+    )
+    st.altair_chart(avg_weekday_chart, use_container_width=True)
+
 st.subheader("Spending Over Time")
 agg_option = st.radio("Aggregate spending by:", ("Daily", "Weekly", "Monthly"), horizontal=True)
 freq = {"Daily": "D", "Weekly": "W", "Monthly": "ME"}[agg_option]
@@ -236,6 +294,34 @@ time_chart = (
     .interactive()
 )
 st.altair_chart(time_chart, use_container_width=True)
+
+st.markdown("### Spending by Category Over Time")
+category_time_chart_type = st.radio(
+    "Chart type:", ["Stacked Area", "Lines"], horizontal=True, key="category_time_chart_type"
+)
+category_time_spend = spend_by_period_and_category(edited_df, freq=freq)
+
+category_time_encoding = dict(
+    x=alt.X("Transaction Date:T", title=agg_option, axis=alt.Axis(format="%b %d, %Y")),
+    y=alt.Y("Amount:Q", title="Total Spent ($)"),
+    color=alt.Color("Category:N", legend=alt.Legend(title="Category")),
+    tooltip=[
+        "Category",
+        alt.Tooltip("Transaction Date:T", title=agg_option),
+        alt.Tooltip("Amount:Q", format="$.2f", title="Total Spent"),
+    ],
+)
+
+if category_time_chart_type == "Stacked Area":
+    category_time_chart = alt.Chart(category_time_spend).mark_area().encode(**category_time_encoding)
+else:
+    category_time_chart = (
+        alt.Chart(category_time_spend)
+        .mark_line(point=alt.OverlayMarkDef(filled=True, size=40))
+        .encode(**category_time_encoding)
+    )
+
+st.altair_chart(category_time_chart.properties(height=400).interactive(), use_container_width=True)
 
 # --- Recurring merchants ---
 st.header("🔍 Money Saving Opportunities")
@@ -282,10 +368,7 @@ st.dataframe(
 
 st.subheader("💰 Large One-Off Purchases")
 z_threshold = st.slider("Z-score threshold", min_value=1.0, max_value=5.0, value=3.0, step=0.5)
-global_mean = analysis_df["Amount"].mean()
-global_std = analysis_df["Amount"].std()
-analysis_df["z_score"] = (analysis_df["Amount"] - global_mean) / global_std
-analysis_df["is_one_off_large"] = analysis_df["z_score"] > z_threshold
+analysis_df = category_zscores(analysis_df, z_threshold=z_threshold)
 
 st.dataframe(
     analysis_df[analysis_df["is_one_off_large"]]
@@ -295,7 +378,7 @@ st.dataframe(
     .sort_values("Transaction Count", ascending=False),
     use_container_width=True,
 )
-st.caption(f"📊 Global mean spend: ${global_mean:,.2f} | Std dev: ${global_std:,.2f}")
+st.caption("📊 Z-score is computed relative to each transaction's own category mean/std, not the whole statement.")
 
 st.subheader("🆕 New Merchants")
 days_threshold = st.slider("Days since first seen", min_value=15, max_value=180, value=60, step=15)
