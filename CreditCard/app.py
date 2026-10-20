@@ -122,8 +122,7 @@ with col3:
 with col4:
     st.metric("Sum of Venmo", f"${venmoed_df['Amount Venmoed'].sum():,.2f}" if not venmoed_df.empty else "$0.00")
 with col5:
-    net_expense = edited_df["Amount"].sum() - venmoed_df["Amount Venmoed"].sum() if not venmoed_df.empty else edited_df["Amount"].sum()
-    st.metric("Net Expense", f"${net_expense:,.2f}")
+    st.metric("Average Purchase Amount", f"${edited_df['Amount'].mean():,.2f}")
 
 st.header("Spending Overview")
 col1, col2, col3 = st.columns(3)
