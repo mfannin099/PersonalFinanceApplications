@@ -5,6 +5,7 @@ from CreditCard.analytics import (
     share_of_wallet,
     spend_by_period_and_category,
     spend_by_weekday,
+    transactions_for_period,
 )
 
 
@@ -103,3 +104,44 @@ def test_share_of_wallet_handles_zero_total():
     df = pd.DataFrame({"Category": [], "Amount": []})
     result = share_of_wallet(df)
     assert result.empty
+
+
+def test_transactions_for_period_daily_matches_exact_day():
+    df = _df(
+        [
+            {"Transaction Date": "2024-01-05", "Amount": 10},
+            {"Transaction Date": "2024-01-06", "Amount": 20},
+        ]
+    )
+    result = transactions_for_period(df, pd.Timestamp("2024-01-05"), freq="D")
+    assert result["Amount"].tolist() == [10]
+
+
+def test_transactions_for_period_weekly_matches_resample_bucket():
+    df = _df(
+        [
+            {"Transaction Date": "2024-01-01", "Amount": 10},  # Monday
+            {"Transaction Date": "2024-01-07", "Amount": 20},  # Sunday, same week
+            {"Transaction Date": "2024-01-08", "Amount": 30},  # next Monday, different week
+        ]
+    )
+    weekly = df.set_index("Transaction Date").resample("W")["Amount"].sum().reset_index()
+    first_week_label = weekly["Transaction Date"].iloc[0]
+
+    result = transactions_for_period(df, first_week_label, freq="W")
+    assert sorted(result["Amount"].tolist()) == [10, 20]
+
+
+def test_transactions_for_period_monthly_matches_resample_bucket():
+    df = _df(
+        [
+            {"Transaction Date": "2024-01-15", "Amount": 10},
+            {"Transaction Date": "2024-01-31", "Amount": 20},
+            {"Transaction Date": "2024-02-01", "Amount": 30},
+        ]
+    )
+    monthly = df.set_index("Transaction Date").resample("ME")["Amount"].sum().reset_index()
+    january_label = monthly["Transaction Date"].iloc[0]
+
+    result = transactions_for_period(df, january_label, freq="ME")
+    assert sorted(result["Amount"].tolist()) == [10, 20]

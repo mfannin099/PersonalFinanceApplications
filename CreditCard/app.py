@@ -9,6 +9,7 @@ from analytics import (
     share_of_wallet,
     spend_by_period_and_category,
     spend_by_weekday,
+    transactions_for_period,
 )
 from categorize import (
     CATEGORIES,
@@ -294,6 +295,24 @@ time_chart = (
     .interactive()
 )
 st.altair_chart(time_chart, use_container_width=True)
+
+st.markdown("#### 🔍 View Transactions for a Specific Period")
+period_noun = {"Daily": "day", "Weekly": "week", "Monthly": "month"}[agg_option]
+selected_period = st.selectbox(
+    f"Select a {period_noun} to see its transactions:",
+    options=sorted(time_spend["Transaction Date"].unique()),
+    format_func=lambda d: pd.Timestamp(d).strftime("%b %d, %Y"),
+    key="time_period_drilldown",
+)
+period_transactions = transactions_for_period(edited_df, selected_period, freq).sort_values("Transaction Date")
+st.dataframe(
+    period_transactions[["Transaction Date", "Description", "Category", "Amount"]],
+    use_container_width=True,
+    hide_index=True,
+)
+st.caption(
+    f"{len(period_transactions)} transaction(s) totaling ${period_transactions['Amount'].sum():,.2f}"
+)
 
 st.markdown("### Spending by Category Over Time")
 category_time_chart_type = st.radio(
