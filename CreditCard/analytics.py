@@ -2,7 +2,15 @@
 
 import pandas as pd
 
+try:
+    # Flat import: works when Streamlit runs this file with CreditCard/ on sys.path.
+    from categorize import NEEDS_WANTS_MAP
+except ImportError:
+    # Package-qualified import: works when pytest imports this as CreditCard.analytics.
+    from .categorize import NEEDS_WANTS_MAP
+
 WEEKDAY_ORDER = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+CLASSIFICATION_ORDER = ["Essential", "Discretionary", "Other"]
 
 
 def spend_by_period_and_category(df: pd.DataFrame, freq: str, top_n: int = 8) -> pd.DataFrame:
@@ -132,3 +140,29 @@ def share_of_wallet(df: pd.DataFrame) -> pd.DataFrame:
     total = category_totals["Amount"].sum()
     category_totals["pct_of_total"] = (category_totals["Amount"] / total * 100) if total else 0.0
     return category_totals.sort_values("Amount", ascending=False)
+
+
+def with_classification(df: pd.DataFrame, category_map: dict[str, str] | None = None) -> pd.DataFrame:
+    """Return a copy of ``df`` with a row-level Essential/Discretionary/Other column.
+
+    Unmapped categories default to "Other" rather than raising, so this
+    degrades gracefully if a new category is ever added without updating
+    the map.
+    """
+    category_map = category_map if category_map is not None else NEEDS_WANTS_MAP
+    return df.assign(Classification=df["Category"].map(category_map).fillna("Other"))
+
+
+def needs_vs_wants(df: pd.DataFrame, category_map: dict[str, str] | None = None) -> pd.DataFrame:
+    """Total spend classified as Essential/Discretionary/Other, with % of total.
+
+    Rows are returned in a fixed order (not sorted by $) so a chart's
+    colors/order stay stable across uploads.
+    """
+    classified = with_classification(df, category_map)
+    totals = classified.groupby("Classification")["Amount"].sum()
+    totals = totals.reindex(CLASSIFICATION_ORDER, fill_value=0.0).reset_index()
+
+    total = totals["Amount"].sum()
+    totals["pct_of_total"] = (totals["Amount"] / total * 100) if total else 0.0
+    return totals

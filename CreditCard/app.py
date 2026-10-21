@@ -7,10 +7,12 @@ import streamlit as st
 from analytics import (
     category_zscores,
     daily_spending_stats,
+    needs_vs_wants,
     share_of_wallet,
     spend_by_period_and_category,
     spend_by_weekday,
     transactions_for_period,
+    with_classification,
 )
 from categorize import (
     CATEGORIES,
@@ -241,6 +243,81 @@ with wallet_col2:
         .properties(height=450)
     )
     st.altair_chart(donut, use_container_width=True)
+
+st.markdown("### Needs vs. Wants")
+needs_wants_df = needs_vs_wants(edited_df)
+needs_wants_amounts = needs_wants_df.set_index("Classification")
+
+needs_wants_cols = st.columns(3 if needs_wants_amounts.loc["Other", "Amount"] > 0 else 2)
+with needs_wants_cols[0]:
+    st.metric(
+        "Essential",
+        f"${needs_wants_amounts.loc['Essential', 'Amount']:,.2f}",
+        f"{needs_wants_amounts.loc['Essential', 'pct_of_total']:.1f}% of total",
+    )
+with needs_wants_cols[1]:
+    st.metric(
+        "Discretionary",
+        f"${needs_wants_amounts.loc['Discretionary', 'Amount']:,.2f}",
+        f"{needs_wants_amounts.loc['Discretionary', 'pct_of_total']:.1f}% of total",
+    )
+if len(needs_wants_cols) == 3:
+    with needs_wants_cols[2]:
+        st.metric(
+            "Other",
+            f"${needs_wants_amounts.loc['Other', 'Amount']:,.2f}",
+            f"{needs_wants_amounts.loc['Other', 'pct_of_total']:.1f}% of total",
+        )
+
+needs_wants_col1, needs_wants_col2, needs_wants_col3 = st.columns([1, 2, 1])
+with needs_wants_col2:
+    needs_wants_donut = (
+        alt.Chart(needs_wants_df)
+        .mark_arc(innerRadius=80)
+        .encode(
+            theta=alt.Theta("Amount:Q"),
+            color=alt.Color("Classification:N", legend=alt.Legend(title="Classification")),
+            tooltip=[
+                "Classification",
+                alt.Tooltip("Amount:Q", format="$.2f"),
+                alt.Tooltip("pct_of_total:Q", format=".1f", title="% of Total"),
+            ],
+        )
+        .properties(height=450)
+    )
+    st.altair_chart(needs_wants_donut, use_container_width=True)
+st.caption(
+    "Classification is a fixed default (Essential: Bills & Utilities, Groceries, Gas, "
+    "Health & Wellness, Automotive, Fees & Adjustments; Discretionary: Food & Drink, "
+    "Entertainment, Shopping, Travel, Personal; Other: Money out, Uncategorized) — not yet "
+    "user-editable."
+)
+
+st.markdown("#### Top Purchases: Essential vs. Discretionary")
+needs_wants_top_n = st.slider(
+    "Number of purchases to show per column:", min_value=3, max_value=25, value=10, step=1, key="needs_wants_top_n"
+)
+classified_df = with_classification(edited_df)
+top_purchase_columns = ["Transaction Date", "Description", "Category", "Amount"]
+
+essential_top_col, discretionary_top_col = st.columns(2)
+with essential_top_col:
+    st.markdown("###### Essential")
+    essential_top = (
+        classified_df[classified_df["Classification"] == "Essential"]
+        .sort_values("Amount", ascending=False)
+        .head(needs_wants_top_n)
+    )
+    st.dataframe(essential_top[top_purchase_columns], use_container_width=True, hide_index=True)
+
+with discretionary_top_col:
+    st.markdown("###### Discretionary")
+    discretionary_top = (
+        classified_df[classified_df["Classification"] == "Discretionary"]
+        .sort_values("Amount", ascending=False)
+        .head(needs_wants_top_n)
+    )
+    st.dataframe(discretionary_top[top_purchase_columns], use_container_width=True, hide_index=True)
 
 st.markdown("### Spending by Day of Week")
 weekday_spend = spend_by_weekday(edited_df)

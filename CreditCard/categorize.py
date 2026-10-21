@@ -32,6 +32,27 @@ CATEGORIES = [
     "Uncategorized",
 ]
 
+# Needs-vs-wants classification per category. Fees are an unavoidable cost
+# (not a discretionary choice), so "Essential". "Money out" (Venmo/Zelle/ATM
+# transfers) and "Uncategorized" land in "Other" rather than being forced
+# into either bucket, since transfers aren't spending and unclassified
+# transactions shouldn't silently skew the split.
+NEEDS_WANTS_MAP: dict[str, str] = {
+    "Bills & Utilities": "Essential",
+    "Groceries": "Essential",
+    "Gas": "Essential",
+    "Health & Wellness": "Essential",
+    "Automotive": "Essential",
+    "Fees & Adjustments": "Essential",
+    "Food & Drink": "Discretionary",
+    "Entertainment": "Discretionary",
+    "Shopping": "Discretionary",
+    "Travel": "Discretionary",
+    "Personal": "Discretionary",
+    "Money out": "Other",
+    "Uncategorized": "Other",
+}
+
 # Category -> keywords matched against the cleaned (letters/spaces only) description.
 DEFAULT_KEYWORD_RULES: dict[str, list[str]] = {
     "Groceries": ["kroger", "safeway", "whole foods", "trader joe", "aldi", "publix", "wegmans", "grocery"],
