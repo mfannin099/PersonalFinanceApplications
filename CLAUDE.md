@@ -1,9 +1,9 @@
 # PersonalFinanceApplications
 
 Personal finance tools. One `uv` project/venv at this root covers all
-sub-apps, but each folder is an independent Streamlit app with its own
-`app.py` entry point — there is no shared nav shell by design (one app per
-folder, run separately).
+sub-apps, but each folder is an independent app (Streamlit or Dash) with its
+own `app.py` entry point — there is no shared nav shell by design (one app
+per folder, run separately).
 
 ## Structure
 
@@ -57,11 +57,44 @@ folder, run separately).
     Stacked Area/Lines toggle) → Money Saving Opportunities (recurring
     merchants, frequent small purchases, per-category large one-offs, new
     merchants) → Recommendations (merchants flagged by ≥2 of those signals).
-- `Stocks/app.py`, `Budget/app.py` — placeholder apps, not yet implemented.
+- `Budget/` — budgeting dashboard (built out), the one **Dash** app in the
+  repo (not Streamlit).
+  - `app.py` — entry point, run via `uv run python -m Budget.app` (module
+    execution, not `python Budget/app.py`) because plain script execution
+    puts `Budget/` itself on `sys.path[0]` instead of the project root,
+    which would break its package-qualified imports. Unlike the Streamlit
+    apps, `app.py` imports `CreditCard.cleaning`/`categorize`/`analytics`
+    and `Budget.budgeting` fully package-qualified throughout — Dash has no
+    Streamlit-style sys.path trick, so there's no local-import variant.
+  - `budgeting.py` — pure, Dash-free budgeting logic (unit-tested in
+    `tests/test_budgeting.py`), parallel to `CreditCard/analytics.py`:
+    - `BUDGET_CATEGORIES` — `CreditCard.categorize.CATEGORIES` reused
+      verbatim (so a categorized card transaction maps into the budget with
+      no translation layer) plus five categories that never appear on a
+      card statement: `Rent/Mortgage`, `Insurance`, `Savings`,
+      `Debt Payments`, `Childcare`.
+    - `suggested_allocations` — starting-point $ allocations for one of four
+      preset methods (`50/30/20`, `Zero-Based`, `Envelope`,
+      `Pay Yourself First`); these seed the editable allocations table, they
+      aren't a final answer. `Envelope` currently shares `50/30/20`'s
+      formula — the methods differ in UI framing (hard-cap styling), not
+      allocation math.
+    - `budget_vs_actual` — budgeted vs. actual $ per category, with
+      variance/%-used/status, for driving the progress bars. The five
+      non-card categories always get `Actual Amount == 0` since they never
+      appear on a card statement.
+    - `budget_summary` — total income/budgeted/unallocated, for the
+      "Unallocated" badge.
+  - Reuses the shared `CreditCard/data/merchant_overrides.json` for
+    merchant categorization — that's categorization data, not budget data.
+    The budget itself (income, chosen preset, allocations) is **session
+    -only, not persisted** (see Notes below).
+- `Stocks/app.py` — placeholder app, not yet implemented.
 - `tests/` — pytest for `CreditCard/cleaning.py`, `CreditCard/categorize.py`,
-  and `CreditCard/analytics.py` (imported there via the `CreditCard.`
-  package path, since pytest runs from the project root — only each app's
-  own `app.py` uses local imports).
+  `CreditCard/analytics.py`, and `Budget/budgeting.py` (imported there via
+  the `CreditCard.`/`Budget.` package paths, since pytest runs from the
+  project root — only each Streamlit app's own `app.py` uses local imports;
+  `Budget/app.py` is package-qualified even outside tests, see above).
 
 This replaces the earlier one-off prototype at
 `ad_hoc/finances_streamlit_tracker` — that version is left in place as
@@ -71,6 +104,7 @@ historical reference but is no longer maintained.
 
 ```bash
 uv run streamlit run CreditCard/app.py
+uv run python -m Budget.app   # Dash, not Streamlit — see Structure above
 uv run pytest
 ```
 
@@ -92,3 +126,9 @@ uv run pytest
 - Workflow: features are built on a branch, tested (`uv run pytest` +
   compile check + a headless/live Streamlit smoke test), then merged into
   `main` with `--no-ff` one branch at a time, only once the user confirms.
+- `Budget/` has no persistence, by deliberate choice mirroring `CreditCard`'s
+  "no database" philosophy: income, chosen preset, and allocations are
+  session-only and reset on every run. It never writes to a `Budget/data/`
+  folder (none exists). Only `CreditCard/data/merchant_overrides.json` is
+  read/written by `Budget/app.py`, and that's shared, pre-existing
+  categorization state, not budget state.
