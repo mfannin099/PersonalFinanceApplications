@@ -78,7 +78,11 @@ per folder, run separately).
       `Pay Yourself First`); these seed the editable allocations table, they
       aren't a final answer. `Envelope` currently shares `50/30/20`'s
       formula — the methods differ in UI framing (hard-cap styling), not
-      allocation math.
+      allocation math. Within any bucket (or across everything, for
+      Zero-Based), the split uses `CATEGORY_WEIGHTS` — not an even split —
+      so e.g. `Rent/Mortgage` is suggested a realistic multiple of `Fees &
+      Adjustments` rather than an identical share; the weights are rough
+      typical-household proportions, not a precision budgeting model.
     - `budget_vs_actual` — budgeted vs. actual $ per category, with
       variance/%-used/status, for driving the progress bars. The five
       non-card categories always get `Actual Amount == 0` since they never

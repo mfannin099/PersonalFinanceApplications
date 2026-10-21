@@ -36,30 +36,62 @@ _NEEDS_BUCKET = NEEDS_CARD + ["Rent/Mortgage", "Insurance", "Childcare"]
 _WANTS_BUCKET = WANTS_CARD
 _SAVINGS_BUCKET = ["Savings", "Debt Payments"]
 
+# Relative weight of each category within whatever bucket it's split
+# across, loosely based on typical U.S. household expense shares (e.g.
+# housing dominates Needs; dining/shopping dominate Wants). An even split
+# would give "Rent/Mortgage" the same suggested amount as "Fees &
+# Adjustments" — these weights avoid that. Units are arbitrary and only
+# meaningful relative to other weights in the same split; "Money out" and
+# "Uncategorized" are always 0 since budgeting for transfers/unknowns is
+# meaningless.
+CATEGORY_WEIGHTS: dict[str, float] = {
+    "Rent/Mortgage": 40,
+    "Bills & Utilities": 8,
+    "Groceries": 14,
+    "Gas": 6,
+    "Health & Wellness": 7,
+    "Insurance": 7,
+    "Automotive": 5,
+    "Fees & Adjustments": 3,
+    "Childcare": 10,
+    "Food & Drink": 12,
+    "Entertainment": 5,
+    "Shopping": 10,
+    "Travel": 4,
+    "Personal": 4,
+    "Savings": 12,
+    "Debt Payments": 8,
+    "Money out": 0,
+    "Uncategorized": 0,
+}
+
 
 def _zero_allocations() -> dict[str, float]:
     return {category: 0.0 for category in BUDGET_CATEGORIES}
 
 
-def _even_split(allocations: dict[str, float], categories: list[str], amount: float) -> None:
+def _weighted_split(allocations: dict[str, float], categories: list[str], amount: float) -> None:
     if not categories:
         return
-    share = amount / len(categories)
+    total_weight = sum(CATEGORY_WEIGHTS.get(c, 0) for c in categories)
+    if total_weight == 0:
+        return
     for category in categories:
+        share = amount * CATEGORY_WEIGHTS.get(category, 0) / total_weight
         allocations[category] = round(share, 2)
 
 
 def _suggest_50_30_20(income: float) -> dict[str, float]:
     allocations = _zero_allocations()
-    _even_split(allocations, _NEEDS_BUCKET, 0.50 * income)
-    _even_split(allocations, _WANTS_BUCKET, 0.30 * income)
-    _even_split(allocations, _SAVINGS_BUCKET, 0.20 * income)
+    _weighted_split(allocations, _NEEDS_BUCKET, 0.50 * income)
+    _weighted_split(allocations, _WANTS_BUCKET, 0.30 * income)
+    _weighted_split(allocations, _SAVINGS_BUCKET, 0.20 * income)
     return allocations
 
 
 def _suggest_zero_based(income: float) -> dict[str, float]:
     allocations = _zero_allocations()
-    _even_split(allocations, BUDGET_CATEGORIES, income)
+    _weighted_split(allocations, BUDGET_CATEGORIES, income)
     return allocations
 
 
@@ -68,16 +100,19 @@ def _suggest_pay_yourself_first(income: float, savings_rate: float) -> dict[str,
     savings_amount = round(savings_rate * income, 2)
     allocations["Savings"] = savings_amount
     remainder_categories = [c for c in BUDGET_CATEGORIES if c not in ("Savings", *OTHER_CARD)]
-    _even_split(allocations, remainder_categories, income - savings_amount)
+    _weighted_split(allocations, remainder_categories, income - savings_amount)
     return allocations
 
 
 def suggested_allocations(method: str, income: float, *, savings_rate: float = 0.20) -> pd.DataFrame:
     """Starting-point $ allocation per category for a named budgeting method.
 
-    These are suggestions to seed the editable allocations table, not a
-    final answer — the user is expected to adjust them. Raises
-    ``ValueError`` for an unrecognized ``method``.
+    Within each bucket, amounts are split by ``CATEGORY_WEIGHTS`` (not
+    evenly) so e.g. Rent/Mortgage is suggested a realistic multiple of
+    Fees & Adjustments rather than an identical share. These are
+    suggestions to seed the editable allocations table, not a final
+    answer — the user is expected to adjust them. Raises ``ValueError``
+    for an unrecognized ``method``.
     """
     if method == "50/30/20":
         allocations = _suggest_50_30_20(income)
