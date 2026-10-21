@@ -12,6 +12,7 @@ from analytics import (
     spend_by_period_and_category,
     spend_by_weekday,
     transactions_for_period,
+    with_classification,
 )
 from categorize import (
     CATEGORIES,
@@ -291,6 +292,32 @@ st.caption(
     "Entertainment, Shopping, Travel, Personal; Other: Money out, Uncategorized) — not yet "
     "user-editable."
 )
+
+st.markdown("#### Top Purchases: Essential vs. Discretionary")
+needs_wants_top_n = st.slider(
+    "Number of purchases to show per column:", min_value=3, max_value=25, value=10, step=1, key="needs_wants_top_n"
+)
+classified_df = with_classification(edited_df)
+top_purchase_columns = ["Transaction Date", "Description", "Category", "Amount"]
+
+essential_top_col, discretionary_top_col = st.columns(2)
+with essential_top_col:
+    st.markdown("###### Essential")
+    essential_top = (
+        classified_df[classified_df["Classification"] == "Essential"]
+        .sort_values("Amount", ascending=False)
+        .head(needs_wants_top_n)
+    )
+    st.dataframe(essential_top[top_purchase_columns], use_container_width=True, hide_index=True)
+
+with discretionary_top_col:
+    st.markdown("###### Discretionary")
+    discretionary_top = (
+        classified_df[classified_df["Classification"] == "Discretionary"]
+        .sort_values("Amount", ascending=False)
+        .head(needs_wants_top_n)
+    )
+    st.dataframe(discretionary_top[top_purchase_columns], use_container_width=True, hide_index=True)
 
 st.markdown("### Spending by Day of Week")
 weekday_spend = spend_by_weekday(edited_df)

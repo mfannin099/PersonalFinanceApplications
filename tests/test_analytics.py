@@ -8,6 +8,7 @@ from CreditCard.analytics import (
     spend_by_period_and_category,
     spend_by_weekday,
     transactions_for_period,
+    with_classification,
 )
 
 
@@ -224,3 +225,16 @@ def test_needs_vs_wants_handles_zero_total():
     assert (result["Amount"] == 0).all()
     assert (result["pct_of_total"] == 0).all()
     assert result["Classification"].tolist() == ["Essential", "Discretionary", "Other"]
+
+
+def test_with_classification_adds_row_level_column():
+    df = pd.DataFrame({"Description": ["A", "B"], "Category": ["Groceries", "Entertainment"], "Amount": [10, 20]})
+    result = with_classification(df)
+    assert result.loc[result["Description"] == "A", "Classification"].iloc[0] == "Essential"
+    assert result.loc[result["Description"] == "B", "Classification"].iloc[0] == "Discretionary"
+
+
+def test_with_classification_unmapped_category_defaults_to_other():
+    df = pd.DataFrame({"Description": ["X"], "Category": ["Some New Category"], "Amount": [5]})
+    result = with_classification(df)
+    assert result.loc[0, "Classification"] == "Other"

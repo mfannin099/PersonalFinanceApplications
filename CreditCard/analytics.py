@@ -142,17 +142,24 @@ def share_of_wallet(df: pd.DataFrame) -> pd.DataFrame:
     return category_totals.sort_values("Amount", ascending=False)
 
 
-def needs_vs_wants(df: pd.DataFrame, category_map: dict[str, str] | None = None) -> pd.DataFrame:
-    """Total spend classified as Essential/Discretionary/Other, with % of total.
+def with_classification(df: pd.DataFrame, category_map: dict[str, str] | None = None) -> pd.DataFrame:
+    """Return a copy of ``df`` with a row-level Essential/Discretionary/Other column.
 
     Unmapped categories default to "Other" rather than raising, so this
     degrades gracefully if a new category is ever added without updating
-    the map. Rows are returned in a fixed order (not sorted by $) so a
-    chart's colors/order stay stable across uploads.
+    the map.
     """
     category_map = category_map if category_map is not None else NEEDS_WANTS_MAP
+    return df.assign(Classification=df["Category"].map(category_map).fillna("Other"))
 
-    classified = df.assign(Classification=df["Category"].map(category_map).fillna("Other"))
+
+def needs_vs_wants(df: pd.DataFrame, category_map: dict[str, str] | None = None) -> pd.DataFrame:
+    """Total spend classified as Essential/Discretionary/Other, with % of total.
+
+    Rows are returned in a fixed order (not sorted by $) so a chart's
+    colors/order stay stable across uploads.
+    """
+    classified = with_classification(df, category_map)
     totals = classified.groupby("Classification")["Amount"].sum()
     totals = totals.reindex(CLASSIFICATION_ORDER, fill_value=0.0).reset_index()
 
