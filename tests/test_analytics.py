@@ -3,6 +3,7 @@ import pandas as pd
 from CreditCard.analytics import (
     category_zscores,
     daily_spending_stats,
+    needs_vs_wants,
     share_of_wallet,
     spend_by_period_and_category,
     spend_by_weekday,
@@ -195,3 +196,31 @@ def test_daily_spending_stats_empty_df():
     df = pd.DataFrame({"Transaction Date": pd.to_datetime([]), "Amount": []})
     stats = daily_spending_stats(df)
     assert stats == {"median_daily_spend": 0.0, "avg_daily_transactions": 0.0}
+
+
+def test_needs_vs_wants_classifies_known_categories():
+    df = pd.DataFrame({"Category": ["Groceries", "Entertainment"], "Amount": [40, 60]})
+    result = needs_vs_wants(df)
+    assert result.loc[result["Classification"] == "Essential", "Amount"].iloc[0] == 40
+    assert result.loc[result["Classification"] == "Discretionary", "Amount"].iloc[0] == 60
+
+
+def test_needs_vs_wants_unmapped_category_defaults_to_other():
+    df = pd.DataFrame({"Category": ["Some New Category"], "Amount": [25]})
+    result = needs_vs_wants(df)
+    assert result.loc[result["Classification"] == "Other", "Amount"].iloc[0] == 25
+
+
+def test_needs_vs_wants_percentages_sum_to_100():
+    df = pd.DataFrame({"Category": ["Groceries", "Entertainment"], "Amount": [25, 75]})
+    result = needs_vs_wants(df)
+    assert result.loc[result["Classification"] == "Essential", "pct_of_total"].iloc[0] == 25.0
+    assert result.loc[result["Classification"] == "Discretionary", "pct_of_total"].iloc[0] == 75.0
+
+
+def test_needs_vs_wants_handles_zero_total():
+    df = pd.DataFrame({"Category": [], "Amount": []})
+    result = needs_vs_wants(df)
+    assert (result["Amount"] == 0).all()
+    assert (result["pct_of_total"] == 0).all()
+    assert result["Classification"].tolist() == ["Essential", "Discretionary", "Other"]
