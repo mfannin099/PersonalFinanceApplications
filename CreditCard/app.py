@@ -6,6 +6,7 @@ import streamlit as st
 
 from analytics import (
     category_zscores,
+    daily_spending_stats,
     share_of_wallet,
     spend_by_period_and_category,
     spend_by_weekday,
@@ -242,6 +243,15 @@ with wallet_col2:
     st.altair_chart(donut, use_container_width=True)
 
 st.markdown("### Spending by Day of Week")
+daily_stats = daily_spending_stats(edited_df)
+daily_stats_col1, daily_stats_col2 = st.columns(2)
+with daily_stats_col1:
+    st.metric("Median Daily Spend", f"${daily_stats['median_daily_spend']:,.2f}")
+with daily_stats_col2:
+    st.metric("Average Transactions per Day", f"{daily_stats['avg_daily_transactions']:.2f}")
+st.caption(
+    "Computed across every calendar day in the statement's date range, including days with no purchases."
+)
 weekday_spend = spend_by_weekday(edited_df)
 weekday_col1, weekday_col2 = st.columns(2)
 

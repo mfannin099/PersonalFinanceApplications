@@ -67,6 +67,33 @@ def spend_by_weekday(df: pd.DataFrame) -> pd.DataFrame:
     return weekday_spend
 
 
+def daily_spending_stats(df: pd.DataFrame) -> dict:
+    """Median $ spent per day and average # of transactions per day.
+
+    Computed over every calendar day in the data's date range (inclusive),
+    including days with zero transactions/spend — not just days that had
+    at least one purchase.
+    """
+    if df.empty:
+        return {"median_daily_spend": 0.0, "avg_daily_transactions": 0.0}
+
+    start = df["Transaction Date"].min().normalize()
+    end = df["Transaction Date"].max().normalize()
+    full_range = pd.date_range(start, end, freq="D")
+
+    daily = (
+        df.assign(Date=df["Transaction Date"].dt.normalize())
+        .groupby("Date")
+        .agg(Total=("Amount", "sum"), Transactions=("Amount", "count"))
+        .reindex(full_range, fill_value=0)
+    )
+
+    return {
+        "median_daily_spend": daily["Total"].median(),
+        "avg_daily_transactions": daily["Transactions"].mean(),
+    }
+
+
 def transactions_for_period(df: pd.DataFrame, period_label, freq: str) -> pd.DataFrame:
     """Return the transactions falling in the same resample bucket as ``period_label``.
 
