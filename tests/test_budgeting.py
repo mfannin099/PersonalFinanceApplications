@@ -33,10 +33,18 @@ def test_50_30_20_bucket_sums():
     assert _amount(df, "Uncategorized") == 0
 
 
-def test_zero_based_even_split_sums_to_income():
+def test_zero_based_weighted_split_sums_to_income():
     df = suggested_allocations("Zero-Based", INCOME)
     assert df["Budgeted Amount"].sum() == pytest.approx(INCOME, abs=0.1)
-    assert df["Budgeted Amount"].nunique() == 1
+    assert _amount(df, "Money out") == 0
+    assert _amount(df, "Uncategorized") == 0
+
+
+def test_50_30_20_weights_rent_above_minor_categories():
+    df = suggested_allocations("50/30/20", INCOME)
+    assert _amount(df, "Rent/Mortgage") > _amount(df, "Fees & Adjustments")
+    assert _amount(df, "Rent/Mortgage") > _amount(df, "Gas")
+    assert _amount(df, "Rent/Mortgage") >= 1000
 
 
 def test_pay_yourself_first_savings_default_rate():
