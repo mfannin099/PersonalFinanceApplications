@@ -43,24 +43,39 @@ def category_zscores(df: pd.DataFrame, z_threshold: float) -> pd.DataFrame:
 
 
 def spend_by_weekday(df: pd.DataFrame) -> pd.DataFrame:
-    """Total and average-per-day spend by day of week, Monday through Sunday.
+    """Spend and transaction-count stats by day of week, Monday through Sunday.
 
-    "Average" is the mean of each individual day's total (e.g. the average
-    of all Saturdays' totals), not the mean transaction amount — that way a
+    Built over every calendar day in the data's date range (including
+    zero-spend days), consistent with ``daily_spending_stats``. "Average"
+    and "Median" are the mean/median of each individual day's *total*
+    (e.g. across all Saturdays), not the mean transaction amount — so a
     weekday with many small purchases isn't diluted relative to one with
     few large ones.
     """
-    daily_totals = (
-        df.assign(Date=df["Transaction Date"].dt.date)
-        .groupby("Date")["Amount"]
-        .sum()
-        .reset_index()
+    empty_columns = ["Weekday", "Total", "Average", "Median", "Avg Transaction Count"]
+    if df.empty:
+        return pd.DataFrame({col: (WEEKDAY_ORDER if col == "Weekday" else 0.0) for col in empty_columns})
+
+    start = df["Transaction Date"].min().normalize()
+    end = df["Transaction Date"].max().normalize()
+    full_range = pd.date_range(start, end, freq="D")
+
+    daily = (
+        df.assign(Date=df["Transaction Date"].dt.normalize())
+        .groupby("Date")
+        .agg(Total=("Amount", "sum"), Transactions=("Amount", "count"))
+        .reindex(full_range, fill_value=0)
     )
-    daily_totals["Weekday"] = pd.to_datetime(daily_totals["Date"]).dt.day_name()
+    daily["Weekday"] = daily.index.day_name()
 
     weekday_spend = (
-        daily_totals.groupby("Weekday")["Amount"]
-        .agg(Total="sum", Average="mean")
+        daily.groupby("Weekday")
+        .agg(
+            Total=("Total", "sum"),
+            Average=("Total", "mean"),
+            Median=("Total", "median"),
+            **{"Avg Transaction Count": ("Transactions", "mean")},
+        )
         .reindex(WEEKDAY_ORDER, fill_value=0)
         .reset_index()
     )

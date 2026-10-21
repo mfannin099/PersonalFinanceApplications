@@ -94,6 +94,26 @@ def test_spend_by_weekday_average_is_mean_of_daily_totals_not_transactions():
     assert result.loc[result["Weekday"] == "Monday", "Average"].iloc[0] == 60
 
 
+def test_spend_by_weekday_median_and_avg_transaction_count_include_zero_spend_occurrences():
+    # Mondays 1/1 ($10, 1 txn) and 1/8 ($20, 2 txns) fall in range; Monday
+    # 1/15 is also in range (the data extends to 1/21) but has zero
+    # transactions, so it contributes a $0 / 0-txn day for Monday.
+    df = _df(
+        [
+            {"Transaction Date": "2024-01-01", "Amount": 10},  # Monday, 1 txn -> daily total 10
+            {"Transaction Date": "2024-01-08", "Amount": 10},  # Monday, 2 txns -> daily total 20
+            {"Transaction Date": "2024-01-08", "Amount": 10},
+            {"Transaction Date": "2024-01-21", "Amount": 1},  # Sunday, extends the range past 1/15
+        ]
+    )
+    result = spend_by_weekday(df)
+    monday = result.loc[result["Weekday"] == "Monday"].iloc[0]
+    # Monday daily totals across the full range (1/1, 1/8, 1/15) are [10, 20, 0] -> median 10.
+    assert monday["Median"] == 10
+    # Monday daily transaction counts are [1, 2, 0] -> mean 1.0.
+    assert monday["Avg Transaction Count"] == 1.0
+
+
 def test_share_of_wallet_percentages_sum_to_100():
     df = pd.DataFrame({"Category": ["A", "B"], "Amount": [25, 75]})
     result = share_of_wallet(df)
