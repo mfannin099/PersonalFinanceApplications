@@ -6,6 +6,7 @@ import streamlit as st
 
 from analytics import (
     category_zscores,
+    daily_spending_stats,
     share_of_wallet,
     spend_by_period_and_category,
     spend_by_weekday,
@@ -243,35 +244,37 @@ with wallet_col2:
 
 st.markdown("### Spending by Day of Week")
 weekday_spend = spend_by_weekday(edited_df)
-weekday_col1, weekday_col2 = st.columns(2)
 
-with weekday_col1:
-    st.markdown("###### Total Spend")
-    total_weekday_chart = (
-        alt.Chart(weekday_spend)
-        .mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5, color="#6baed6")
-        .encode(
-            x=alt.X("Weekday:N", sort=weekday_spend["Weekday"].tolist(), title="Day of Week"),
-            y=alt.Y("Total:Q", title="Total Spent ($)"),
-            tooltip=["Weekday", alt.Tooltip("Total:Q", format="$.2f")],
-        )
-        .properties(height=300)
-    )
-    st.altair_chart(total_weekday_chart, use_container_width=True)
+weekday_dollar_metric = st.radio(
+    "$ metric to show as bars:", ["Total", "Average", "Median"], horizontal=True, key="weekday_dollar_metric"
+)
 
-with weekday_col2:
-    st.markdown("###### Average Spend per Day")
-    avg_weekday_chart = (
-        alt.Chart(weekday_spend)
-        .mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5, color="#f58518")
-        .encode(
-            x=alt.X("Weekday:N", sort=weekday_spend["Weekday"].tolist(), title="Day of Week"),
-            y=alt.Y("Average:Q", title="Average Spent ($)"),
-            tooltip=["Weekday", alt.Tooltip("Average:Q", format="$.2f")],
-        )
-        .properties(height=300)
-    )
-    st.altair_chart(avg_weekday_chart, use_container_width=True)
+weekday_base = alt.Chart(weekday_spend).encode(
+    x=alt.X("Weekday:N", sort=weekday_spend["Weekday"].tolist(), title="Day of Week")
+)
+weekday_bars = weekday_base.mark_bar(cornerRadiusTopLeft=5, cornerRadiusTopRight=5, color="#6baed6").encode(
+    y=alt.Y(f"{weekday_dollar_metric}:Q", title=f"{weekday_dollar_metric} Spend ($)"),
+    tooltip=["Weekday", alt.Tooltip(f"{weekday_dollar_metric}:Q", format="$.2f")],
+)
+weekday_line = weekday_base.mark_line(color="#f58518", point=alt.OverlayMarkDef(filled=True, size=60)).encode(
+    y=alt.Y(
+        "Avg Transaction Count:Q",
+        title="Avg Transaction Count",
+        axis=alt.Axis(titleColor="#f58518"),
+    ),
+    tooltip=["Weekday", alt.Tooltip("Avg Transaction Count:Q", format=".2f")],
+)
+weekday_combo = (
+    alt.layer(weekday_bars, weekday_line).resolve_scale(y="independent").properties(height=400)
+)
+st.altair_chart(weekday_combo, use_container_width=True)
+
+daily_stats = daily_spending_stats(edited_df)
+st.caption(
+    f"Overall (all days, including zero-spend ones): median daily spend "
+    f"${daily_stats['median_daily_spend']:,.2f} | average {daily_stats['avg_daily_transactions']:.2f} "
+    "transactions/day."
+)
 
 st.subheader("Spending Over Time")
 agg_option = st.radio("Aggregate spending by:", ("Daily", "Weekly", "Monthly"), horizontal=True)

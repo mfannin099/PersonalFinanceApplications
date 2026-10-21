@@ -2,6 +2,7 @@ import pandas as pd
 
 from CreditCard.analytics import (
     category_zscores,
+    daily_spending_stats,
     share_of_wallet,
     spend_by_period_and_category,
     spend_by_weekday,
@@ -93,6 +94,26 @@ def test_spend_by_weekday_average_is_mean_of_daily_totals_not_transactions():
     assert result.loc[result["Weekday"] == "Monday", "Average"].iloc[0] == 60
 
 
+def test_spend_by_weekday_median_and_avg_transaction_count_include_zero_spend_occurrences():
+    # Mondays 1/1 ($10, 1 txn) and 1/8 ($20, 2 txns) fall in range; Monday
+    # 1/15 is also in range (the data extends to 1/21) but has zero
+    # transactions, so it contributes a $0 / 0-txn day for Monday.
+    df = _df(
+        [
+            {"Transaction Date": "2024-01-01", "Amount": 10},  # Monday, 1 txn -> daily total 10
+            {"Transaction Date": "2024-01-08", "Amount": 10},  # Monday, 2 txns -> daily total 20
+            {"Transaction Date": "2024-01-08", "Amount": 10},
+            {"Transaction Date": "2024-01-21", "Amount": 1},  # Sunday, extends the range past 1/15
+        ]
+    )
+    result = spend_by_weekday(df)
+    monday = result.loc[result["Weekday"] == "Monday"].iloc[0]
+    # Monday daily totals across the full range (1/1, 1/8, 1/15) are [10, 20, 0] -> median 10.
+    assert monday["Median"] == 10
+    # Monday daily transaction counts are [1, 2, 0] -> mean 1.0.
+    assert monday["Avg Transaction Count"] == 1.0
+
+
 def test_share_of_wallet_percentages_sum_to_100():
     df = pd.DataFrame({"Category": ["A", "B"], "Amount": [25, 75]})
     result = share_of_wallet(df)
@@ -145,3 +166,32 @@ def test_transactions_for_period_monthly_matches_resample_bucket():
 
     result = transactions_for_period(df, january_label, freq="ME")
     assert sorted(result["Amount"].tolist()) == [10, 20]
+
+
+def test_daily_spending_stats_includes_zero_spend_days_in_range():
+    # Jan 1 ($30, 2 txns), Jan 2 (nothing), Jan 3 ($10, 1 txn) -> 3-day range.
+    df = _df(
+        [
+            {"Transaction Date": "2024-01-01", "Amount": 10},
+            {"Transaction Date": "2024-01-01", "Amount": 20},
+            {"Transaction Date": "2024-01-03", "Amount": 10},
+        ]
+    )
+    stats = daily_spending_stats(df)
+    # Daily totals across the full range: [30, 0, 10] -> median 10.
+    assert stats["median_daily_spend"] == 10
+    # Daily transaction counts across the full range: [2, 0, 1] -> mean 1.0.
+    assert stats["avg_daily_transactions"] == 1.0
+
+
+def test_daily_spending_stats_single_day():
+    df = _df([{"Transaction Date": "2024-01-01", "Amount": 50}])
+    stats = daily_spending_stats(df)
+    assert stats["median_daily_spend"] == 50
+    assert stats["avg_daily_transactions"] == 1.0
+
+
+def test_daily_spending_stats_empty_df():
+    df = pd.DataFrame({"Transaction Date": pd.to_datetime([]), "Amount": []})
+    stats = daily_spending_stats(df)
+    assert stats == {"median_daily_spend": 0.0, "avg_daily_transactions": 0.0}
