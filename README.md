@@ -12,10 +12,25 @@ uv sync
 
 ## Apps
 
-- **Credit Card** (`CreditCard/app.py`) — upload a credit card statement CSV,
-  get automatic merchant categorization (editable/persisted), Venmo-split
-  accounting, spend breakdowns, and money-saving flags (recurring charges,
-  frequent small purchases, large one-offs, new merchants).
+- **Credit Card** (`CreditCard/app.py`) — upload a credit card statement CSV
+  and get:
+  - Automatic merchant categorization, editable and persisted per-merchant.
+  - Venmo-split accounting (mark transactions as split/reimbursed).
+  - Sidebar filters: merchant, category, date range, amount range.
+  - Spending Overview: top-N category/merchant/frequency charts (adjustable
+    N) and a Share of Wallet donut (% of spend by category).
+  - Spending by Day of Week: a combo chart toggling between Total/Average/
+    Median $ (bars) with average transaction count overlaid (line), plus
+    overall median daily spend / average transactions-per-day stats — all
+    computed across every calendar day in the statement, including days
+    with no purchases.
+  - Spending Over Time: an aggregate line chart (Daily/Weekly/Monthly),
+    a drilldown to see exactly what was purchased in a selected period, and
+    a per-category breakout chart with its own category picker.
+  - Money Saving Opportunities: recurring charges, frequent small purchases,
+    large one-off purchases (judged against each category's own typical
+    spend), and newly-seen merchants — rolled into a Recommendations list.
+
   ```bash
   uv run streamlit run CreditCard/app.py
   ```
