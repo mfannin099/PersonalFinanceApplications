@@ -70,20 +70,24 @@ per folder, run separately).
     `tests/test_budgeting.py`), parallel to `CreditCard/analytics.py`:
     - `BUDGET_CATEGORIES` — most of `CreditCard.categorize.CATEGORIES`
       reused verbatim (so a categorized card transaction maps into the
-      budget with no translation layer), plus four categories that never
-      appear on a card statement: `Rent/Mortgage`, `Insurance`, `Savings`,
-      `Debt Payments`. Two exceptions to "verbatim": `"Money out"` and
+      budget with no translation layer), plus three categories that never
+      appear on a card statement: `Rent/Mortgage`, `Savings`,
+      `Debt Payments`. Exceptions to "verbatim": `"Money out"` and
       `"Fees & Adjustments"` are excluded entirely (not budget line items —
-      see Notes below), and `"Shopping"` is relabeled `"Misc Shopping"` via
+      see Notes below); `"Shopping"` is relabeled `"Misc Shopping"`; and
+      `"Bills & Utilities"` is relabeled `"Bills & Utilities (+ Insurance)"`
+      — `Insurance` was a separate non-card category but is now folded into
+      this one line instead (its own `CATEGORY_WEIGHTS` entry was added
+      into `Bills & Utilities`'s). Both relabels go through
       `relabel_for_budget`/`_CARD_CATEGORY_RELABELS`.
     - `relabel_for_budget` — renames a categorized statement's `Category`
-      values to match Budget's labels (currently just `"Shopping"` ->
-      `"Misc Shopping"`). Used wherever a transaction's raw CreditCard
-      category needs to line up with `BUDGET_CATEGORIES` — inside
-      `budget_vs_actual` itself, and in `Budget/app.py`'s drill-down
-      accordion (which classifies with the raw category first via
-      `with_classification`, *then* relabels, so the Essential/Discretionary
-      mapping isn't broken by the rename).
+      values to match Budget's labels (`"Shopping"` -> `"Misc Shopping"`,
+      `"Bills & Utilities"` -> `"Bills & Utilities (+ Insurance)"`). Used
+      wherever a transaction's raw CreditCard category needs to line up
+      with `BUDGET_CATEGORIES` — inside `budget_vs_actual` itself, and in
+      `Budget/app.py`'s drill-down accordion (which classifies with the raw
+      category first via `with_classification`, *then* relabels, so the
+      Essential/Discretionary mapping isn't broken by the rename).
     - `suggested_allocations` — starting-point $ allocations for one of
       three preset methods (`50/30/20`, `Zero-Based`, `Pay Yourself First`;
       `Envelope` was considered but removed — see Notes below). These seed
@@ -97,7 +101,7 @@ per folder, run separately).
       against every other directly — `Savings` competes on the same
       footing as spending categories instead of a guaranteed 20% floor.
     - `budget_vs_actual` — budgeted vs. actual $ per category, with
-      variance/%-used/status, for driving the progress bars. The four
+      variance/%-used/status, for driving the progress bars. The three
       non-card categories always get `Actual Amount == 0` since they never
       appear on a card statement. Transactions categorized `"Money out"` or
       `"Fees & Adjustments"` are excluded entirely — not shown as $0, just
@@ -175,12 +179,18 @@ uv run pytest
   entered dollar amount is used as-is either way. This was a deliberate v1
   scope decision (no automatic tax/withholding conversion), but the toggle
   having zero functional effect is easy to miss since it looks interactive.
-- `Budget/budgeting.py`'s category list was trimmed by request: `Childcare`
-  (a `NON_CARD_CATEGORIES` entry) was dropped outright; `"Money out"` and
-  `"Fees & Adjustments"` (CreditCard categories) are excluded from every
-  Budget view — a transaction categorized either way by CreditCard simply
-  isn't counted anywhere in the Budget app, it doesn't fall back into
-  another bucket; and `"Shopping"` reads as `"Misc Shopping"` in Budget
-  (CreditCard itself is untouched — its own taxonomy, keyword rules, and
-  tests still use `"Shopping"`, `"Money out"`, `"Fees & Adjustments"`
-  unchanged, since those are a separate, already-tested app).
+- `Budget/budgeting.py`'s category list was trimmed/merged by request:
+  `Childcare` (a `NON_CARD_CATEGORIES` entry) was dropped outright;
+  `"Money out"` and `"Fees & Adjustments"` (CreditCard categories) are
+  excluded from every Budget view — a transaction categorized either way
+  by CreditCard simply isn't counted anywhere in the Budget app, it
+  doesn't fall back into another bucket; `"Shopping"` reads as
+  `"Misc Shopping"` in Budget; and the non-card `Insurance` category was
+  folded into `"Bills & Utilities"`, which now reads as
+  `"Bills & Utilities (+ Insurance)"` — one budget line covering both, with
+  actual spend still coming only from card transactions categorized
+  `"Bills & Utilities"` (Insurance itself was never a card category, so it
+  never contributed actual $ anyway). CreditCard itself is untouched —
+  its own taxonomy, keyword rules, and tests still use `"Shopping"`,
+  `"Money out"`, `"Fees & Adjustments"`, and `"Bills & Utilities"`
+  unchanged, since that's a separate, already-tested app.

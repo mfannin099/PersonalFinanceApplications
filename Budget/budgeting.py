@@ -12,7 +12,9 @@ from CreditCard.categorize import NEEDS_WANTS_MAP
 # Budget line items that never appear on a credit card statement — paid by
 # other means (ACH, check, auto-draft), so "actual" spend for these is
 # always $0 in budget_vs_actual; they exist purely as budget targets.
-NON_CARD_CATEGORIES = ["Rent/Mortgage", "Insurance", "Savings", "Debt Payments"]
+# ("Insurance" used to be here too, but it's now folded into the
+# "Bills & Utilities" line item below rather than budgeted separately.)
+NON_CARD_CATEGORIES = ["Rent/Mortgage", "Savings", "Debt Payments"]
 
 # CreditCard categories that aren't budget line items here: "Money out" is
 # a transfer, not spending, and "Fees & Adjustments" isn't something a user
@@ -21,11 +23,15 @@ NON_CARD_CATEGORIES = ["Rent/Mortgage", "Insurance", "Savings", "Debt Payments"]
 _EXCLUDED_CARD_CATEGORIES = ["Money out", "Fees & Adjustments"]
 
 # CreditCard's "Shopping" reads as a budget line item under the clearer
-# name "Misc Shopping". This is the one deliberate exception to reusing
-# CreditCard's category names verbatim — everywhere a transaction's raw
-# "Shopping" category needs to line up with a Budget category, it's passed
-# through this map first (see relabel_for_budget).
-_CARD_CATEGORY_RELABELS = {"Shopping": "Misc Shopping"}
+# name "Misc Shopping", and "Bills & Utilities" is relabeled to show it now
+# also covers the (removed, non-card) "Insurance" budget. These are the
+# deliberate exceptions to reusing CreditCard's category names verbatim —
+# everywhere a transaction's raw category needs to line up with a Budget
+# category, it's passed through this map first (see relabel_for_budget).
+_CARD_CATEGORY_RELABELS = {
+    "Shopping": "Misc Shopping",
+    "Bills & Utilities": "Bills & Utilities (+ Insurance)",
+}
 
 
 def _budget_label(category: str) -> str:
@@ -35,9 +41,9 @@ def _budget_label(category: str) -> str:
 def relabel_for_budget(transactions: pd.DataFrame) -> pd.DataFrame:
     """Rename a categorized statement's ``Category`` values to match Budget's labels.
 
-    Only "Shopping" -> "Misc Shopping" changes; everything else passes
-    through unchanged (including the excluded categories, which simply
-    won't match anything in ``BUDGET_CATEGORIES`` downstream).
+    Only the entries in ``_CARD_CATEGORY_RELABELS`` change; everything else
+    passes through unchanged (including the excluded categories, which
+    simply won't match anything in ``BUDGET_CATEGORIES`` downstream).
     """
     if transactions.empty:
         return transactions
@@ -85,7 +91,7 @@ OTHER_CARD = [_budget_label(c) for c in _ELIGIBLE_CARD_CATEGORIES if NEEDS_WANTS
 NEEDS_CARD = [_budget_label(c) for c in _ELIGIBLE_CARD_CATEGORIES if NEEDS_WANTS_MAP.get(c) == "Essential"]
 WANTS_CARD = [_budget_label(c) for c in _ELIGIBLE_CARD_CATEGORIES if NEEDS_WANTS_MAP.get(c) == "Discretionary"]
 
-_NEEDS_BUCKET = NEEDS_CARD + ["Rent/Mortgage", "Insurance"]
+_NEEDS_BUCKET = NEEDS_CARD + ["Rent/Mortgage"]
 _WANTS_BUCKET = WANTS_CARD
 _SAVINGS_BUCKET = ["Savings", "Debt Payments"]
 
@@ -98,11 +104,10 @@ _SAVINGS_BUCKET = ["Savings", "Debt Payments"]
 # since budgeting for unknown spend is meaningless.
 CATEGORY_WEIGHTS: dict[str, float] = {
     "Rent/Mortgage": 40,
-    "Bills & Utilities": 8,
+    "Bills & Utilities (+ Insurance)": 15,  # was Bills & Utilities (8) + Insurance (7)
     "Groceries": 14,
     "Gas": 6,
     "Health & Wellness": 7,
-    "Insurance": 7,
     "Automotive": 5,
     "Food & Drink": 12,
     "Entertainment": 5,
@@ -199,8 +204,9 @@ def budget_vs_actual(allocations: pd.DataFrame, transactions: pd.DataFrame | Non
     subset/order of ``BUDGET_CATEGORIES`` — missing categories default to
     $0 budgeted). ``transactions`` is a categorized statement (``Category``/
     ``Amount`` columns), or ``None``/empty if nothing has been uploaded yet.
-    Every row in ``NON_CARD_CATEGORIES`` always gets ``Actual Amount == 0``,
-    since those categories never appear on a card statement. Transactions
+    Every row in ``NON_CARD_CATEGORIES`` (3 categories) always gets
+    ``Actual Amount == 0``, since those never appear on a card statement.
+    Transactions
     categorized "Money out" or "Fees & Adjustments" are excluded entirely —
     they don't appear as $0, they simply aren't counted anywhere.
     """

@@ -24,12 +24,15 @@ def test_budget_categories_excludes_money_out_fees_and_childcare():
     assert "Childcare" not in BUDGET_CATEGORIES
     assert "Shopping" not in BUDGET_CATEGORIES
     assert "Misc Shopping" in BUDGET_CATEGORIES
+    assert "Insurance" not in BUDGET_CATEGORIES
+    assert "Bills & Utilities" not in BUDGET_CATEGORIES
+    assert "Bills & Utilities (+ Insurance)" in BUDGET_CATEGORIES
 
 
 def test_50_30_20_bucket_sums():
     df = suggested_allocations("50/30/20", INCOME)
-    needs = df[df["Category"].isin(["Bills & Utilities", "Groceries", "Gas", "Health & Wellness",
-                                     "Automotive", "Rent/Mortgage", "Insurance"])]["Budgeted Amount"].sum()
+    needs = df[df["Category"].isin(["Bills & Utilities (+ Insurance)", "Groceries", "Gas",
+                                     "Health & Wellness", "Automotive", "Rent/Mortgage"])]["Budgeted Amount"].sum()
     wants = df[df["Category"].isin(["Food & Drink", "Entertainment", "Misc Shopping", "Travel", "Personal"])][
         "Budgeted Amount"
     ].sum()
@@ -138,6 +141,15 @@ def test_relabel_for_budget_only_renames_shopping():
     transactions = pd.DataFrame({"Category": ["Shopping", "Groceries", "Money out"], "Amount": [1, 2, 3]})
     result = relabel_for_budget(transactions)
     assert list(result["Category"]) == ["Misc Shopping", "Groceries", "Money out"]
+
+
+def test_budget_vs_actual_relabels_bills_and_utilities_with_insurance():
+    allocations = pd.DataFrame({"Category": ["Bills & Utilities (+ Insurance)"], "Budgeted Amount": [300.0]})
+    transactions = pd.DataFrame({"Category": ["Bills & Utilities", "Bills & Utilities"], "Amount": [120.0, 80.0]})
+
+    result = budget_vs_actual(allocations, transactions)
+
+    assert result.loc[result["Category"] == "Bills & Utilities (+ Insurance)", "Actual Amount"].iloc[0] == 200.0
 
 
 def test_budget_vs_actual_no_budget_status_avoids_division_by_zero():
