@@ -7,6 +7,7 @@ from Budget.budgeting import (
     budget_summary,
     budget_vs_actual,
     filter_to_recent_window,
+    relabel_for_budget,
     suggested_allocations,
 )
 
@@ -17,12 +18,19 @@ def _amount(df: pd.DataFrame, category: str) -> float:
     return df.loc[df["Category"] == category, "Budgeted Amount"].iloc[0]
 
 
+def test_budget_categories_excludes_money_out_fees_and_childcare():
+    assert "Money out" not in BUDGET_CATEGORIES
+    assert "Fees & Adjustments" not in BUDGET_CATEGORIES
+    assert "Childcare" not in BUDGET_CATEGORIES
+    assert "Shopping" not in BUDGET_CATEGORIES
+    assert "Misc Shopping" in BUDGET_CATEGORIES
+
+
 def test_50_30_20_bucket_sums():
     df = suggested_allocations("50/30/20", INCOME)
     needs = df[df["Category"].isin(["Bills & Utilities", "Groceries", "Gas", "Health & Wellness",
-                                     "Automotive", "Fees & Adjustments", "Rent/Mortgage",
-                                     "Insurance", "Childcare"])]["Budgeted Amount"].sum()
-    wants = df[df["Category"].isin(["Food & Drink", "Entertainment", "Shopping", "Travel", "Personal"])][
+                                     "Automotive", "Rent/Mortgage", "Insurance"])]["Budgeted Amount"].sum()
+    wants = df[df["Category"].isin(["Food & Drink", "Entertainment", "Misc Shopping", "Travel", "Personal"])][
         "Budgeted Amount"
     ].sum()
     savings = df[df["Category"].isin(["Savings", "Debt Payments"])]["Budgeted Amount"].sum()
@@ -30,20 +38,11 @@ def test_50_30_20_bucket_sums():
     assert needs == pytest.approx(0.50 * INCOME, abs=0.1)
     assert wants == pytest.approx(0.30 * INCOME, abs=0.1)
     assert savings == pytest.approx(0.20 * INCOME, abs=0.1)
-    assert _amount(df, "Money out") == 0
-    assert _amount(df, "Uncategorized") == 0
-
-
-def test_zero_based_weighted_split_sums_to_income():
-    df = suggested_allocations("Zero-Based", INCOME)
-    assert df["Budgeted Amount"].sum() == pytest.approx(INCOME, abs=0.1)
-    assert _amount(df, "Money out") == 0
     assert _amount(df, "Uncategorized") == 0
 
 
 def test_50_30_20_weights_rent_above_minor_categories():
     df = suggested_allocations("50/30/20", INCOME)
-    assert _amount(df, "Rent/Mortgage") > _amount(df, "Fees & Adjustments")
     assert _amount(df, "Rent/Mortgage") > _amount(df, "Gas")
     assert _amount(df, "Rent/Mortgage") >= 1000
 
@@ -51,7 +50,6 @@ def test_50_30_20_weights_rent_above_minor_categories():
 def test_pay_yourself_first_savings_default_rate():
     df = suggested_allocations("Pay Yourself First", INCOME)
     assert _amount(df, "Savings") == pytest.approx(0.20 * INCOME, abs=0.01)
-    assert _amount(df, "Money out") == 0
     assert _amount(df, "Uncategorized") == 0
 
 
@@ -60,15 +58,13 @@ def test_pay_yourself_first_custom_rate():
     assert _amount(df, "Savings") == pytest.approx(0.35 * INCOME, abs=0.01)
 
 
-def test_envelope_matches_50_30_20():
-    envelope = suggested_allocations("Envelope", INCOME)
-    standard = suggested_allocations("50/30/20", INCOME)
-    pd.testing.assert_frame_equal(envelope, standard)
-
-
 def test_unrecognized_method_raises():
     with pytest.raises(ValueError):
         suggested_allocations("Not A Method", INCOME)
+    with pytest.raises(ValueError):
+        suggested_allocations("Zero-Based", INCOME)
+    with pytest.raises(ValueError):
+        suggested_allocations("Envelope", INCOME)
 
 
 def test_budget_vs_actual_per_category_sums():
@@ -98,7 +94,7 @@ def test_non_card_categories_always_zero_actual():
 
 def test_budget_vs_actual_status_thresholds():
     allocations = pd.DataFrame(
-        {"Category": ["Groceries", "Gas", "Shopping"], "Budgeted Amount": [100.0, 100.0, 100.0]}
+        {"Category": ["Groceries", "Gas", "Misc Shopping"], "Budgeted Amount": [100.0, 100.0, 100.0]}
     )
     transactions = pd.DataFrame(
         {"Category": ["Groceries", "Gas", "Shopping"], "Amount": [50.0, 90.0, 150.0]}
@@ -108,7 +104,35 @@ def test_budget_vs_actual_status_thresholds():
 
     assert result.loc["Groceries", "Status"] == "Under"
     assert result.loc["Gas", "Status"] == "Near"
-    assert result.loc["Shopping", "Status"] == "Over"
+    assert result.loc["Misc Shopping", "Status"] == "Over"
+
+
+def test_budget_vs_actual_relabels_shopping_as_misc_shopping():
+    allocations = pd.DataFrame({"Category": ["Misc Shopping"], "Budgeted Amount": [200.0]})
+    transactions = pd.DataFrame({"Category": ["Shopping", "Shopping"], "Amount": [40.0, 60.0]})
+
+    result = budget_vs_actual(allocations, transactions)
+
+    assert result.loc[result["Category"] == "Misc Shopping", "Actual Amount"].iloc[0] == 100.0
+
+
+def test_budget_vs_actual_excludes_money_out_and_fees():
+    allocations = pd.DataFrame({"Category": ["Groceries"], "Budgeted Amount": [100.0]})
+    transactions = pd.DataFrame(
+        {"Category": ["Groceries", "Money out", "Fees & Adjustments"], "Amount": [50.0, 500.0, 35.0]}
+    )
+
+    result = budget_vs_actual(allocations, transactions)
+
+    assert "Money out" not in result["Category"].values
+    assert "Fees & Adjustments" not in result["Category"].values
+    assert result["Actual Amount"].sum() == 50.0
+
+
+def test_relabel_for_budget_only_renames_shopping():
+    transactions = pd.DataFrame({"Category": ["Shopping", "Groceries", "Money out"], "Amount": [1, 2, 3]})
+    result = relabel_for_budget(transactions)
+    assert list(result["Category"]) == ["Misc Shopping", "Groceries", "Money out"]
 
 
 def test_budget_vs_actual_no_budget_status_avoids_division_by_zero():

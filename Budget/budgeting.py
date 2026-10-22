@@ -12,12 +12,44 @@ from CreditCard.categorize import NEEDS_WANTS_MAP
 # Budget line items that never appear on a credit card statement — paid by
 # other means (ACH, check, auto-draft), so "actual" spend for these is
 # always $0 in budget_vs_actual; they exist purely as budget targets.
-NON_CARD_CATEGORIES = ["Rent/Mortgage", "Insurance", "Savings", "Debt Payments", "Childcare"]
+NON_CARD_CATEGORIES = ["Rent/Mortgage", "Insurance", "Savings", "Debt Payments"]
 
-# The full set of budget line items: every CreditCard category (reused
-# verbatim so a categorized transaction maps into the budget with no
-# translation layer) plus the non-card categories above.
-BUDGET_CATEGORIES = CARD_CATEGORIES + NON_CARD_CATEGORIES
+# CreditCard categories that aren't budget line items here: "Money out" is
+# a transfer, not spending, and "Fees & Adjustments" isn't something a user
+# plans ahead for. Transactions categorized either way by CreditCard are
+# simply excluded from every Budget view (not redistributed elsewhere).
+_EXCLUDED_CARD_CATEGORIES = ["Money out", "Fees & Adjustments"]
+
+# CreditCard's "Shopping" reads as a budget line item under the clearer
+# name "Misc Shopping". This is the one deliberate exception to reusing
+# CreditCard's category names verbatim — everywhere a transaction's raw
+# "Shopping" category needs to line up with a Budget category, it's passed
+# through this map first (see relabel_for_budget).
+_CARD_CATEGORY_RELABELS = {"Shopping": "Misc Shopping"}
+
+
+def _budget_label(category: str) -> str:
+    return _CARD_CATEGORY_RELABELS.get(category, category)
+
+
+def relabel_for_budget(transactions: pd.DataFrame) -> pd.DataFrame:
+    """Rename a categorized statement's ``Category`` values to match Budget's labels.
+
+    Only "Shopping" -> "Misc Shopping" changes; everything else passes
+    through unchanged (including the excluded categories, which simply
+    won't match anything in ``BUDGET_CATEGORIES`` downstream).
+    """
+    if transactions.empty:
+        return transactions
+    return transactions.assign(Category=transactions["Category"].replace(_CARD_CATEGORY_RELABELS))
+
+
+_ELIGIBLE_CARD_CATEGORIES = [c for c in CARD_CATEGORIES if c not in _EXCLUDED_CARD_CATEGORIES]
+
+# The full set of budget line items: every CreditCard category except the
+# excluded ones above (relabeled where applicable) plus the non-card
+# categories above.
+BUDGET_CATEGORIES = [_budget_label(c) for c in _ELIGIBLE_CARD_CATEGORIES] + NON_CARD_CATEGORIES
 
 # A budget is a monthly plan, so an uploaded statement is compared against
 # only its most recent ~month, not its full history.
@@ -41,29 +73,28 @@ def filter_to_recent_window(transactions: pd.DataFrame, days: int = RECENT_WINDO
 
 PRESETS: dict[str, str] = {
     "50/30/20": "50% of income to Needs, 30% to Wants, 20% to Savings & debt paydown.",
-    "Zero-Based": "Every dollar is assigned a category; nothing is left unallocated.",
-    "Envelope": "A fixed cap per category — once it's spent, stop spending in that category.",
     "Pay Yourself First": "Savings comes off the top automatically; the remainder is budgeted loosely.",
 }
 
 # Card categories classified "Other" by NEEDS_WANTS_MAP (transfers/unknowns)
 # — budgeting for these is meaningless, so they're always seeded $0.
-OTHER_CARD = [c for c in CARD_CATEGORIES if NEEDS_WANTS_MAP.get(c) == "Other"]
-NEEDS_CARD = [c for c in CARD_CATEGORIES if NEEDS_WANTS_MAP.get(c) == "Essential"]
-WANTS_CARD = [c for c in CARD_CATEGORIES if NEEDS_WANTS_MAP.get(c) == "Discretionary"]
+# (Derived from the eligible/relabeled list, so excluded categories never
+# show up here even though NEEDS_WANTS_MAP itself still has them.)
+OTHER_CARD = [_budget_label(c) for c in _ELIGIBLE_CARD_CATEGORIES if NEEDS_WANTS_MAP.get(c) == "Other"]
+NEEDS_CARD = [_budget_label(c) for c in _ELIGIBLE_CARD_CATEGORIES if NEEDS_WANTS_MAP.get(c) == "Essential"]
+WANTS_CARD = [_budget_label(c) for c in _ELIGIBLE_CARD_CATEGORIES if NEEDS_WANTS_MAP.get(c) == "Discretionary"]
 
-_NEEDS_BUCKET = NEEDS_CARD + ["Rent/Mortgage", "Insurance", "Childcare"]
+_NEEDS_BUCKET = NEEDS_CARD + ["Rent/Mortgage", "Insurance"]
 _WANTS_BUCKET = WANTS_CARD
 _SAVINGS_BUCKET = ["Savings", "Debt Payments"]
 
 # Relative weight of each category within whatever bucket it's split
 # across, loosely based on typical U.S. household expense shares (e.g.
-# housing dominates Needs; dining/shopping dominate Wants). An even split
-# would give "Rent/Mortgage" the same suggested amount as "Fees &
-# Adjustments" — these weights avoid that. Units are arbitrary and only
-# meaningful relative to other weights in the same split; "Money out" and
-# "Uncategorized" are always 0 since budgeting for transfers/unknowns is
-# meaningless.
+# housing dominates Needs; dining/"Misc Shopping" dominate Wants). An even
+# split would give "Rent/Mortgage" the same suggested amount as "Gas" —
+# these weights avoid that. Units are arbitrary and only meaningful
+# relative to other weights in the same split; "Uncategorized" is always 0
+# since budgeting for unknown spend is meaningless.
 CATEGORY_WEIGHTS: dict[str, float] = {
     "Rent/Mortgage": 40,
     "Bills & Utilities": 8,
@@ -72,16 +103,13 @@ CATEGORY_WEIGHTS: dict[str, float] = {
     "Health & Wellness": 7,
     "Insurance": 7,
     "Automotive": 5,
-    "Fees & Adjustments": 3,
-    "Childcare": 10,
     "Food & Drink": 12,
     "Entertainment": 5,
-    "Shopping": 10,
+    "Misc Shopping": 10,
     "Travel": 4,
     "Personal": 4,
     "Savings": 12,
     "Debt Payments": 8,
-    "Money out": 0,
     "Uncategorized": 0,
 }
 
@@ -109,12 +137,6 @@ def _suggest_50_30_20(income: float) -> dict[str, float]:
     return allocations
 
 
-def _suggest_zero_based(income: float) -> dict[str, float]:
-    allocations = _zero_allocations()
-    _weighted_split(allocations, BUDGET_CATEGORIES, income)
-    return allocations
-
-
 def _suggest_pay_yourself_first(income: float, savings_rate: float) -> dict[str, float]:
     allocations = _zero_allocations()
     savings_amount = round(savings_rate * income, 2)
@@ -129,18 +151,11 @@ def suggested_allocations(method: str, income: float, *, savings_rate: float = 0
 
     Within each bucket, amounts are split by ``CATEGORY_WEIGHTS`` (not
     evenly) so e.g. Rent/Mortgage is suggested a realistic multiple of
-    Fees & Adjustments rather than an identical share. These are
-    suggestions to seed the editable allocations table, not a final
-    answer — the user is expected to adjust them. Raises ``ValueError``
-    for an unrecognized ``method``.
+    Gas rather than an identical share. These are suggestions to seed the
+    editable allocations table, not a final answer — the user is expected
+    to adjust them. Raises ``ValueError`` for an unrecognized ``method``.
     """
     if method == "50/30/20":
-        allocations = _suggest_50_30_20(income)
-    elif method == "Zero-Based":
-        allocations = _suggest_zero_based(income)
-    elif method == "Envelope":
-        # Same starting split as 50/30/20 — Envelope's defining feature is
-        # the UI's hard-cap framing, not a different allocation formula.
         allocations = _suggest_50_30_20(income)
     elif method == "Pay Yourself First":
         allocations = _suggest_pay_yourself_first(income, savings_rate)
@@ -171,12 +186,14 @@ def budget_vs_actual(allocations: pd.DataFrame, transactions: pd.DataFrame | Non
     $0 budgeted). ``transactions`` is a categorized statement (``Category``/
     ``Amount`` columns), or ``None``/empty if nothing has been uploaded yet.
     Every row in ``NON_CARD_CATEGORIES`` always gets ``Actual Amount == 0``,
-    since those categories never appear on a card statement.
+    since those categories never appear on a card statement. Transactions
+    categorized "Money out" or "Fees & Adjustments" are excluded entirely —
+    they don't appear as $0, they simply aren't counted anywhere.
     """
     budgeted_by_category = dict(zip(allocations["Category"], allocations["Budgeted Amount"]))
 
     if transactions is not None and not transactions.empty:
-        actual_by_category = transactions.groupby("Category")["Amount"].sum().to_dict()
+        actual_by_category = relabel_for_budget(transactions).groupby("Category")["Amount"].sum().to_dict()
     else:
         actual_by_category = {}
 
