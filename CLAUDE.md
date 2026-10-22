@@ -194,3 +194,14 @@ uv run pytest
   its own taxonomy, keyword rules, and tests still use `"Shopping"`,
   `"Money out"`, `"Fees & Adjustments"`, and `"Bills & Utilities"`
   unchanged, since that's a separate, already-tested app.
+- `build_needs_wants_section` in `Budget/app.py` renders the Needs/Wants/
+  Other split as one full-width horizontal **stacked bar** (3 segments,
+  categorical palette slots 1/2/3 — blue/orange/aqua) with a centered
+  legend row of `$amount (pct%)` chips below it, not a donut. A donut asks
+  the reader to compare angles across slices; a single stacked bar reads
+  part-to-whole directly through segment width, and direct $/% labels live
+  in the legend row rather than inside segments since a small slice (e.g.
+  a near-zero "Other") can be too narrow to hold text. Replaces an earlier
+  donut chart that was also laid out in a half-width `dbc.Col`, which read
+  as off-center; the stacked bar is full-width so centering isn't a
+  separate layout concern.
