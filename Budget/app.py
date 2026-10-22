@@ -28,7 +28,7 @@ from Budget.budgeting import (
     suggested_allocations,
 )
 from CreditCard.analytics import needs_vs_wants, with_classification
-from CreditCard.categorize import CATEGORIES, categorize_transactions, load_overrides, save_override, uncategorized_merchants
+from CreditCard.categorize import CATEGORIES, categorize_transactions, load_overrides, save_override
 from CreditCard.cleaning import clean_statement
 
 STATUS_COLOR = {"Under": "success", "Near": "warning", "Over": "danger", "No Budget": "secondary"}
@@ -39,7 +39,7 @@ STATUS_COLOR = {"Under": "success", "Near": "warning", "Over": "danger", "No Bud
 NEEDS_WANTS_LABELS = {"Essential": "Needs", "Discretionary": "Wants", "Other": "Other"}
 NEEDS_WANTS_COLORS = {"Essential": "#2a78d6", "Discretionary": "#eb6834", "Other": "#1baf7a"}
 
-app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
 app.title = "Budget"
 
 
@@ -49,18 +49,38 @@ def _clean_allocations(table_data: list[dict]) -> pd.DataFrame:
     return df
 
 
-def build_uncategorized_review(merchants: list[str]):
-    if not merchants:
-        return html.Div()
+def build_category_review(df: pd.DataFrame) -> tuple:
+    """List every merchant with its resolved category and a dropdown to fix it.
+
+    Not just the ones flagged "Uncategorized" — a keyword rule or a stale
+    override can also categorize a merchant *wrong*, and the user should be
+    able to correct that too. Each dropdown defaults to the merchant's
+    current category (not "Uncategorized"), so changing it is an explicit,
+    deliberate correction. Returns ``(component, baseline)`` where
+    ``baseline`` is a ``{merchant: category}`` snapshot used by the
+    recategorize callback to tell "user changed this" apart from "dropdown
+    just mounted at its current value" — only the former should write an
+    override.
+    """
+    if df.empty:
+        return html.Div(), {}
+
+    baseline = df.drop_duplicates(subset="Description", keep="last").set_index("Description")["Category"].to_dict()
+    uncategorized_count = sum(1 for category in baseline.values() if category == "Uncategorized")
+    merchants_sorted = sorted(baseline, key=lambda m: (baseline[m] != "Uncategorized", m.lower()))
+
     rows = [
         dbc.Row(
             [
-                dbc.Col(merchant, md=6),
+                dbc.Col(
+                    [merchant, html.Span(f" (currently: {baseline[merchant]})", className="text-muted small")],
+                    md=6,
+                ),
                 dbc.Col(
                     dcc.Dropdown(
                         id={"type": "merchant-cat", "index": merchant},
                         options=[{"label": c, "value": c} for c in CATEGORIES],
-                        value="Uncategorized",
+                        value=baseline[merchant],
                         clearable=False,
                     ),
                     md=6,
@@ -68,21 +88,33 @@ def build_uncategorized_review(merchants: list[str]):
             ],
             className="mb-2",
         )
-        for merchant in merchants
+        for merchant in merchants_sorted
     ]
-    return dbc.Card(
-        dbc.CardBody(
-            [
-                html.H6(f"Review {len(merchants)} uncategorized merchant(s)"),
-                html.P(
-                    "Assign a category — it's remembered next time this merchant shows up.",
-                    className="text-muted small",
+
+    toggle_label = f"Review categories ({uncategorized_count} uncategorized of {len(merchants_sorted)} merchant(s))"
+    component = html.Div(
+        [
+            dbc.Button(toggle_label, id="category-review-toggle", color="link", className="p-0 mt-3"),
+            dbc.Collapse(
+                dbc.Card(
+                    dbc.CardBody(
+                        [
+                            html.P(
+                                "Change a merchant's category below if it's wrong — the fix is "
+                                "remembered next time this merchant shows up.",
+                                className="text-muted small",
+                            ),
+                            *rows,
+                        ]
+                    ),
+                    className="mt-2",
                 ),
-                *rows,
-            ]
-        ),
-        className="mt-3",
+                id="category-review-collapse",
+                is_open=uncategorized_count > 0,
+            ),
+        ]
     )
+    return component, baseline
 
 
 def build_progress_row(row: pd.Series):
@@ -216,6 +248,7 @@ app.layout = dbc.Container(
         html.H2("📅 Budget", className="my-3"),
         dcc.Store(id="cleaned-transactions-store"),
         dcc.Store(id="transactions-store"),
+        dcc.Store(id="category-baseline-store"),
         dbc.Card(
             dbc.CardBody(
                 [
@@ -319,7 +352,7 @@ app.layout = dbc.Container(
                         className="border rounded p-4 text-center",
                     ),
                     html.Div(id="upload-alert", className="mt-2"),
-                    html.Div(id="uncategorized-review"),
+                    html.Div(id="category-review"),
                 ]
             ),
             className="mb-4",
@@ -375,7 +408,8 @@ def update_unallocated_badge(table_data, income):
     Output("cleaned-transactions-store", "data"),
     Output("transactions-store", "data"),
     Output("upload-alert", "children"),
-    Output("uncategorized-review", "children"),
+    Output("category-review", "children"),
+    Output("category-baseline-store", "data"),
     Input("upload-statement", "contents"),
     prevent_initial_call=True,
 )
@@ -388,7 +422,7 @@ def handle_upload(contents):
     try:
         cleaned_df = clean_statement(raw_df)
     except ValueError as exc:
-        return None, None, dbc.Alert(str(exc), color="danger"), html.Div()
+        return None, None, dbc.Alert(str(exc), color="danger"), html.Div(), None
 
     total_count = len(cleaned_df)
     cleaned_df = filter_to_recent_window(cleaned_df)
@@ -397,30 +431,48 @@ def handle_upload(contents):
     message = f"Loaded {len(cleaned_df)} transactions from the last {RECENT_WINDOW_DAYS} days"
     message += f" (filtered from {total_count} total)." if len(cleaned_df) != total_count else "."
     alert = dbc.Alert(message, color="success")
-    review = build_uncategorized_review(uncategorized_merchants(categorized_df))
-    return cleaned_df.to_dict("records"), categorized_df.to_dict("records"), alert, review
+    review, baseline = build_category_review(categorized_df)
+    return cleaned_df.to_dict("records"), categorized_df.to_dict("records"), alert, review, baseline
+
+
+@app.callback(
+    Output("category-review-collapse", "is_open"),
+    Input("category-review-toggle", "n_clicks"),
+    State("category-review-collapse", "is_open"),
+    prevent_initial_call=True,
+)
+def toggle_category_review(n_clicks, is_open):
+    return not is_open
 
 
 @app.callback(
     Output("transactions-store", "data", allow_duplicate=True),
-    Output("uncategorized-review", "children", allow_duplicate=True),
+    Output("category-review", "children", allow_duplicate=True),
+    Output("category-baseline-store", "data", allow_duplicate=True),
     Input({"type": "merchant-cat", "index": ALL}, "value"),
     State("cleaned-transactions-store", "data"),
+    State("category-baseline-store", "data"),
     prevent_initial_call=True,
 )
-def resolve_uncategorized(selected_categories, cleaned_records):
+def recategorize_merchants(selected_categories, cleaned_records, baseline):
     if not cleaned_records:
         raise PreventUpdate
 
+    baseline = baseline or {}
     merchant_ids = [item["id"]["index"] for item in callback_context.inputs_list[0]]
+    changed = False
     for merchant, chosen in zip(merchant_ids, selected_categories):
-        if chosen and chosen != "Uncategorized":
+        if chosen and chosen != baseline.get(merchant):
             save_override(merchant, chosen)
+            changed = True
+
+    if not changed:
+        raise PreventUpdate
 
     cleaned_df = pd.DataFrame.from_records(cleaned_records)
     categorized_df = categorize_transactions(cleaned_df, overrides=load_overrides())
-    review = build_uncategorized_review(uncategorized_merchants(categorized_df))
-    return categorized_df.to_dict("records"), review
+    review, new_baseline = build_category_review(categorized_df)
+    return categorized_df.to_dict("records"), review, new_baseline
 
 
 @app.callback(
