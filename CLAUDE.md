@@ -205,3 +205,18 @@ uv run pytest
   donut chart that was also laid out in a half-width `dbc.Col`, which read
   as off-center; the stacked bar is full-width so centering isn't a
   separate layout concern.
+- `build_category_review` in `Budget/app.py` (formerly
+  `build_uncategorized_review`) lists **every** merchant in the uploaded
+  statement with a dropdown to fix its category, not just the ones flagged
+  `"Uncategorized"` — a keyword rule or a stale override can categorize a
+  merchant *wrong*, not just leave it unresolved, and the user needs a way
+  to correct that too. Each dropdown defaults to the merchant's *current*
+  category (never forced to `"Uncategorized"`), and the `recategorize_merchants`
+  callback (formerly `resolve_uncategorized`) only calls `save_override` for
+  a merchant whose dropdown value differs from a `{merchant: category}`
+  baseline snapshot (`category-baseline-store`) taken when the review was
+  last rendered — this is what stops every page render from silently
+  "locking in" a keyword-rule-derived category as a permanent override the
+  user never actually chose. The review list itself is collapsed by default
+  unless something is actually `"Uncategorized"` (`is_open=uncategorized_count > 0`),
+  behind a toggle button so a long merchant list doesn't dominate the page.
