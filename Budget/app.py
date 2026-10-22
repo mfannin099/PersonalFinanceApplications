@@ -39,7 +39,7 @@ STATUS_COLOR = {"Under": "success", "Near": "warning", "Over": "danger", "No Bud
 NEEDS_WANTS_LABELS = {"Essential": "Needs", "Discretionary": "Wants", "Other": "Other"}
 NEEDS_WANTS_COLORS = {"Essential": "#2a78d6", "Discretionary": "#eb6834", "Other": "#1baf7a"}
 
-app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
 app.title = "Budget"
 
 
