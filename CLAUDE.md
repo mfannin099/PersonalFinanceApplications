@@ -227,9 +227,6 @@ uv run pytest
   of the bare `dbc.themes.BOOTSTRAP` default, every section header uses a
   Bootstrap Icon (`icon()` helper — `html.I(className="bi bi-...")`)
   instead of emoji, and each card uses `dbc.CardHeader` + `dbc.CardBody`
-  rather than a plain `<h5>` inside the body. A new `stat-tiles` row (4
-  `dbc.Card` KPI tiles — Monthly Income, Total Budgeted, Unallocated, Spent
-  in the last `RECENT_WINDOW_DAYS`) sits at the top of the page, borrowed
-  from Monarch/Copilot's "big numbers up top" pattern, driven by its own
-  `update_stat_tiles` callback (`Input`s: `income-amount`, `allocations-table`,
-  `transactions-store`) so it stays live as the user edits the budget.
+  rather than a plain `<h5>` inside the body. A top-of-page KPI stat-tile
+  row (Monarch/Copilot's "big numbers up top" pattern) was tried and then
+  explicitly removed by request — don't re-add it without asking.

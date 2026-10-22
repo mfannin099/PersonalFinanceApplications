@@ -126,44 +126,6 @@ def build_category_review(df: pd.DataFrame) -> tuple:
     return component, baseline
 
 
-def build_stat_tile(icon_name: str, label: str, value: str, accent: str = "body-emphasis"):
-    """One quick-glance KPI card — the 'big numbers up top' pattern Monarch/Copilot
-    lead with, so income/budgeted/unallocated/spent are readable at a glance
-    before scrolling into the detail cards below."""
-    return dbc.Col(
-        dbc.Card(
-            dbc.CardBody(
-                [
-                    html.Div(icon(icon_name, f"fs-4 text-{accent}")),
-                    html.Div(value, className=f"fs-3 fw-semibold text-{accent} mt-1"),
-                    html.Div(label, className="text-muted small"),
-                ]
-            ),
-            className="h-100 shadow-sm",
-        ),
-        md=3,
-        sm=6,
-        className="mb-3",
-    )
-
-
-def build_stat_tiles(income: float, allocations_df: pd.DataFrame, transactions_df: pd.DataFrame | None):
-    summary = budget_summary(income, allocations_df)
-    unallocated = summary["unallocated"]
-    unallocated_accent = "success" if abs(unallocated) < 0.01 else ("danger" if unallocated < 0 else "warning")
-    actual_spend = 0.0 if transactions_df is None or transactions_df.empty else float(transactions_df["Amount"].sum())
-
-    return dbc.Row(
-        [
-            build_stat_tile("cash-stack", "Monthly Income", f"${income:,.0f}"),
-            build_stat_tile("clipboard2-check", "Total Budgeted", f"${summary['total_budgeted']:,.0f}"),
-            build_stat_tile("sliders", "Unallocated", f"${unallocated:,.0f}", unallocated_accent),
-            build_stat_tile("receipt", f"Spent (last {RECENT_WINDOW_DAYS} days)", f"${actual_spend:,.0f}"),
-        ],
-        className="mb-1",
-    )
-
-
 def build_progress_row(row: pd.Series):
     pct, actual, budgeted, status = row["Pct Used"], row["Actual Amount"], row["Budgeted Amount"], row["Status"]
     display_pct = min(pct, 100) if pct is not None else (100 if actual > 0 else 0)
@@ -305,7 +267,6 @@ app.layout = dbc.Container(
         dcc.Store(id="cleaned-transactions-store"),
         dcc.Store(id="transactions-store"),
         dcc.Store(id="category-baseline-store"),
-        html.Div(id="stat-tiles"),
         dbc.Card(
             [
                 dbc.CardHeader([icon("cash-coin", "me-2"), "Income & Method"]),
@@ -556,19 +517,6 @@ def recategorize_merchants(selected_categories, cleaned_records, baseline):
     categorized_df = categorize_transactions(cleaned_df, overrides=load_overrides())
     review, new_baseline = build_category_review(categorized_df)
     return categorized_df.to_dict("records"), review, new_baseline
-
-
-@app.callback(
-    Output("stat-tiles", "children"),
-    Input("income-amount", "value"),
-    Input("allocations-table", "data"),
-    Input("transactions-store", "data"),
-)
-def update_stat_tiles(income, table_data, transaction_records):
-    income = income or 0
-    allocations_df = _clean_allocations(table_data)
-    transactions_df = pd.DataFrame.from_records(transaction_records) if transaction_records else None
-    return build_stat_tiles(income, allocations_df, transactions_df)
 
 
 @app.callback(
