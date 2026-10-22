@@ -58,11 +58,16 @@ def test_pay_yourself_first_custom_rate():
     assert _amount(df, "Savings") == pytest.approx(0.35 * INCOME, abs=0.01)
 
 
+def test_zero_based_weighted_split_sums_to_income():
+    df = suggested_allocations("Zero-Based", INCOME)
+    assert df["Budgeted Amount"].sum() == pytest.approx(INCOME, abs=0.1)
+    assert _amount(df, "Uncategorized") == 0
+    assert _amount(df, "Rent/Mortgage") > _amount(df, "Gas")
+
+
 def test_unrecognized_method_raises():
     with pytest.raises(ValueError):
         suggested_allocations("Not A Method", INCOME)
-    with pytest.raises(ValueError):
-        suggested_allocations("Zero-Based", INCOME)
     with pytest.raises(ValueError):
         suggested_allocations("Envelope", INCOME)
 

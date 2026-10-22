@@ -73,6 +73,7 @@ def filter_to_recent_window(transactions: pd.DataFrame, days: int = RECENT_WINDO
 
 PRESETS: dict[str, str] = {
     "50/30/20": "50% of income to Needs, 30% to Wants, 20% to Savings & debt paydown.",
+    "Zero-Based": "Every dollar is assigned a category; nothing is left unallocated.",
     "Pay Yourself First": "Savings comes off the top automatically; the remainder is budgeted loosely.",
 }
 
@@ -137,6 +138,12 @@ def _suggest_50_30_20(income: float) -> dict[str, float]:
     return allocations
 
 
+def _suggest_zero_based(income: float) -> dict[str, float]:
+    allocations = _zero_allocations()
+    _weighted_split(allocations, BUDGET_CATEGORIES, income)
+    return allocations
+
+
 def _suggest_pay_yourself_first(income: float, savings_rate: float) -> dict[str, float]:
     allocations = _zero_allocations()
     savings_amount = round(savings_rate * income, 2)
@@ -149,14 +156,21 @@ def _suggest_pay_yourself_first(income: float, savings_rate: float) -> dict[str,
 def suggested_allocations(method: str, income: float, *, savings_rate: float = 0.20) -> pd.DataFrame:
     """Starting-point $ allocation per category for a named budgeting method.
 
-    Within each bucket, amounts are split by ``CATEGORY_WEIGHTS`` (not
-    evenly) so e.g. Rent/Mortgage is suggested a realistic multiple of
-    Gas rather than an identical share. These are suggestions to seed the
-    editable allocations table, not a final answer — the user is expected
-    to adjust them. Raises ``ValueError`` for an unrecognized ``method``.
+    Within any bucket (or across everything, for ``Zero-Based``), amounts
+    are split by ``CATEGORY_WEIGHTS`` (not evenly) so e.g. Rent/Mortgage is
+    suggested a realistic multiple of Gas rather than an identical share.
+    ``Zero-Based`` differs from ``50/30/20`` by skipping the 50/30/20
+    tiering and weighting every category against every other directly, so
+    e.g. ``Savings`` competes on the same footing as spending categories
+    instead of being guaranteed a 20% floor. These are suggestions to seed
+    the editable allocations table, not a final answer — the user is
+    expected to adjust them. Raises ``ValueError`` for an unrecognized
+    ``method``.
     """
     if method == "50/30/20":
         allocations = _suggest_50_30_20(income)
+    elif method == "Zero-Based":
+        allocations = _suggest_zero_based(income)
     elif method == "Pay Yourself First":
         allocations = _suggest_pay_yourself_first(income, savings_rate)
     else:

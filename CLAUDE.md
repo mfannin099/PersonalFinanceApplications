@@ -84,14 +84,18 @@ per folder, run separately).
       accordion (which classifies with the raw category first via
       `with_classification`, *then* relabels, so the Essential/Discretionary
       mapping isn't broken by the rename).
-    - `suggested_allocations` — starting-point $ allocations for one of two
-      preset methods (`50/30/20`, `Pay Yourself First`); these seed the
-      editable allocations table, they aren't a final answer. (`Zero-Based`
-      and `Envelope` were considered but removed — see Notes below.) Within
-      each bucket, the split uses `CATEGORY_WEIGHTS` — not an even split —
-      so e.g. `Rent/Mortgage` is suggested a realistic multiple of `Gas`
-      rather than an identical share; the weights are rough
-      typical-household proportions, not a precision budgeting model.
+    - `suggested_allocations` — starting-point $ allocations for one of
+      three preset methods (`50/30/20`, `Zero-Based`, `Pay Yourself First`;
+      `Envelope` was considered but removed — see Notes below). These seed
+      the editable allocations table, they aren't a final answer. Within
+      any bucket (or across everything, for `Zero-Based`), the split uses
+      `CATEGORY_WEIGHTS` — not an even split — so e.g. `Rent/Mortgage` is
+      suggested a realistic multiple of `Gas` rather than an identical
+      share; the weights are rough typical-household proportions, not a
+      precision budgeting model. `Zero-Based` differs from `50/30/20` by
+      skipping the Needs/Wants/Savings tiering and weighting every category
+      against every other directly — `Savings` competes on the same
+      footing as spending categories instead of a guaranteed 20% floor.
     - `budget_vs_actual` — budgeted vs. actual $ per category, with
       variance/%-used/status, for driving the progress bars. The four
       non-card categories always get `Actual Amount == 0` since they never
@@ -156,14 +160,15 @@ uv run pytest
   read/written by `Budget/app.py`, and that's shared, pre-existing
   categorization state, not budget state.
 - `Budget/budgeting.py`'s preset list was trimmed from four methods down to
-  `50/30/20` and `Pay Yourself First`. `Zero-Based` and `Envelope` were
-  removed rather than kept as options — `Envelope` had never had a distinct
+  three: `Envelope` was removed and stays removed — it never had a distinct
   allocation formula (it reused `50/30/20`'s, differing only in intended UI
-  framing that was never built), and `Zero-Based`'s "every category gets a
-  nonzero job" seeding added a method with no real behavioral difference
-  from the other two once weighted. `suggested_allocations("Zero-Based", …)`
-  / `suggested_allocations("Envelope", …)` now raise `ValueError` like any
-  other unrecognized method name.
+  framing that was never built). `suggested_allocations("Envelope", …)`
+  raises `ValueError` like any other unrecognized method name. `Zero-Based`
+  was removed in the same pass, then explicitly re-added by request — it's
+  weighted across *all* of `BUDGET_CATEGORIES` at once rather than tiered
+  into Needs/Wants/Savings buckets like `50/30/20`, which is a real
+  behavioral difference (`Savings` has no guaranteed floor under
+  `Zero-Based`).
 - The "Income Type" (Gross/Net) toggle in `Budget/app.py` is **not read by
   any callback** — it's a caption-only label. Selecting "Gross" changes
   nothing about `suggested_allocations` or any other calculation; the
