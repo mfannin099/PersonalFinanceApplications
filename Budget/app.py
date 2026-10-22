@@ -20,8 +20,10 @@ from Budget.budgeting import (
     BUDGET_CATEGORIES,
     NON_CARD_CATEGORIES,
     PRESETS,
+    RECENT_WINDOW_DAYS,
     budget_summary,
     budget_vs_actual,
+    filter_to_recent_window,
     suggested_allocations,
 )
 from CreditCard.analytics import needs_vs_wants, with_classification
@@ -322,8 +324,13 @@ def handle_upload(contents):
     except ValueError as exc:
         return None, None, dbc.Alert(str(exc), color="danger"), html.Div()
 
+    total_count = len(cleaned_df)
+    cleaned_df = filter_to_recent_window(cleaned_df)
     categorized_df = categorize_transactions(cleaned_df, overrides=load_overrides())
-    alert = dbc.Alert(f"Loaded {len(cleaned_df)} transactions.", color="success")
+
+    message = f"Loaded {len(cleaned_df)} transactions from the last {RECENT_WINDOW_DAYS} days"
+    message += f" (filtered from {total_count} total)." if len(cleaned_df) != total_count else "."
+    alert = dbc.Alert(message, color="success")
     review = build_uncategorized_review(uncategorized_merchants(categorized_df))
     return cleaned_df.to_dict("records"), categorized_df.to_dict("records"), alert, review
 
