@@ -89,6 +89,14 @@ per folder, run separately).
       appear on a card statement.
     - `budget_summary` — total income/budgeted/unallocated, for the
       "Unallocated" badge.
+    - `filter_to_recent_window` — a budget is a monthly plan, so an
+      uploaded statement is trimmed to its most recent `RECENT_WINDOW_DAYS`
+      (30) before categorization/budget-vs-actual, instead of comparing
+      against its full history. Anchored to the statement's own latest
+      `Transaction Date`, not wall-clock time, same reasoning as the "new
+      merchant" window in `CreditCard/app.py`. Applied once, right after
+      `clean_statement`, so both `cleaned-transactions-store` and
+      `transactions-store` only ever hold the filtered window.
   - Reuses the shared `CreditCard/data/merchant_overrides.json` for
     merchant categorization — that's categorization data, not budget data.
     The budget itself (income, chosen preset, allocations) is **session

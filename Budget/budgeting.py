@@ -19,6 +19,26 @@ NON_CARD_CATEGORIES = ["Rent/Mortgage", "Insurance", "Savings", "Debt Payments",
 # translation layer) plus the non-card categories above.
 BUDGET_CATEGORIES = CARD_CATEGORIES + NON_CARD_CATEGORIES
 
+# A budget is a monthly plan, so an uploaded statement is compared against
+# only its most recent ~month, not its full history.
+RECENT_WINDOW_DAYS = 30
+
+
+def filter_to_recent_window(transactions: pd.DataFrame, days: int = RECENT_WINDOW_DAYS) -> pd.DataFrame:
+    """Keep only the last ``days`` days of transactions, inclusive.
+
+    Anchored to the statement's own latest ``Transaction Date``, not
+    wall-clock time — consistent with the "new merchant" window in
+    ``CreditCard/app.py`` — so uploading an old statement still compares
+    against its own most recent activity rather than today's date.
+    """
+    if transactions.empty:
+        return transactions
+    transactions = transactions.copy()
+    transactions["Transaction Date"] = pd.to_datetime(transactions["Transaction Date"])
+    cutoff = transactions["Transaction Date"].max() - pd.Timedelta(days=days - 1)
+    return transactions[transactions["Transaction Date"] >= cutoff].reset_index(drop=True)
+
 PRESETS: dict[str, str] = {
     "50/30/20": "50% of income to Needs, 30% to Wants, 20% to Savings & debt paydown.",
     "Zero-Based": "Every dollar is assigned a category; nothing is left unallocated.",

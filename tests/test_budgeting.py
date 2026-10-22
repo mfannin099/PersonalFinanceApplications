@@ -6,6 +6,7 @@ from Budget.budgeting import (
     NON_CARD_CATEGORIES,
     budget_summary,
     budget_vs_actual,
+    filter_to_recent_window,
     suggested_allocations,
 )
 
@@ -135,3 +136,45 @@ def test_budget_summary_unallocated_cases():
     assert budget_summary(1000.0, fully_allocated)["unallocated"] == 0.0
     assert budget_summary(1000.0, under_allocated)["unallocated"] == pytest.approx(400.0)
     assert budget_summary(1000.0, over_allocated)["unallocated"] == pytest.approx(-200.0)
+
+
+def test_filter_to_recent_window_drops_old_transactions():
+    df = pd.DataFrame(
+        {
+            "Transaction Date": pd.to_datetime(["2025-12-01", "2026-01-20", "2026-01-30"]),
+            "Description": ["Old", "Borderline", "Latest"],
+            "Amount": [10.0, 20.0, 30.0],
+        }
+    )
+    result = filter_to_recent_window(df, days=30)
+    assert set(result["Description"]) == {"Borderline", "Latest"}
+
+
+def test_filter_to_recent_window_inclusive_of_exactly_n_days_ago():
+    df = pd.DataFrame(
+        {
+            "Transaction Date": pd.to_datetime(["2026-01-01", "2026-01-30"]),
+            "Description": ["ExactlyThirtyDaysAgo", "Latest"],
+            "Amount": [10.0, 20.0],
+        }
+    )
+    result = filter_to_recent_window(df, days=30)
+    assert len(result) == 2
+
+
+def test_filter_to_recent_window_anchors_to_statement_not_wall_clock():
+    df = pd.DataFrame(
+        {
+            "Transaction Date": pd.to_datetime(["2020-05-01", "2020-05-29"]),
+            "Description": ["Old", "Latest"],
+            "Amount": [10.0, 20.0],
+        }
+    )
+    result = filter_to_recent_window(df, days=30)
+    assert len(result) == 2
+
+
+def test_filter_to_recent_window_handles_empty_dataframe():
+    df = pd.DataFrame(columns=["Transaction Date", "Description", "Amount"])
+    result = filter_to_recent_window(df, days=30)
+    assert result.empty
