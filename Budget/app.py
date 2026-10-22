@@ -33,6 +33,12 @@ from CreditCard.cleaning import clean_statement
 
 STATUS_COLOR = {"Under": "success", "Near": "warning", "Over": "danger", "No Budget": "secondary"}
 
+# Needs/Wants/Other display label + categorical color (validated palette
+# slots 1/2/3 — blue/orange/aqua), in NEEDS_WANTS_MAP's fixed order so the
+# bar's segment order and the legend order below it always match.
+NEEDS_WANTS_LABELS = {"Essential": "Needs", "Discretionary": "Wants", "Other": "Other"}
+NEEDS_WANTS_COLORS = {"Essential": "#2a78d6", "Discretionary": "#eb6834", "Other": "#1baf7a"}
+
 app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.title = "Budget"
 
@@ -117,12 +123,68 @@ def build_budget_chart(result: pd.DataFrame):
 
 
 def build_needs_wants_section(transactions_df: pd.DataFrame | None):
+    """A single full-width horizontal stacked bar for the Needs/Wants/Other split.
+
+    Part-to-whole across 3 categories reads more clearly as one stacked bar
+    than a donut — there's no angle-vs-angle comparison for the reader to
+    make, and a segment's width scales linearly with its share. Exact $/%
+    are given as a legend row below rather than text baked into the bar,
+    since a segment (e.g. a small "Other") can be too narrow to hold a label.
+    """
     if transactions_df is None or transactions_df.empty:
         return html.Div()
     summary = needs_vs_wants(transactions_df)
-    fig = go.Figure(go.Pie(labels=summary["Classification"], values=summary["Amount"], hole=0.5))
-    fig.update_layout(title="Actual Spend: Needs vs. Wants vs. Other", margin={"l": 10, "r": 10, "t": 40, "b": 10})
-    return dbc.Row(dbc.Col(dcc.Graph(figure=fig), md=6), className="mt-4")
+
+    fig = go.Figure()
+    for row in summary.itertuples():
+        label = NEEDS_WANTS_LABELS[row.Classification]
+        fig.add_bar(
+            name=label,
+            y=["Actual Spend"],
+            x=[row.Amount],
+            orientation="h",
+            marker={"color": NEEDS_WANTS_COLORS[row.Classification], "line": {"color": "#fcfcfb", "width": 2}},
+            hovertemplate=f"{label}: $%{{x:,.2f}} ({row.pct_of_total:.1f}%)<extra></extra>",
+        )
+    fig.update_layout(
+        barmode="stack",
+        bargap=0,
+        height=90,
+        margin={"l": 10, "r": 10, "t": 10, "b": 10},
+        showlegend=False,
+        xaxis={"visible": False},
+        yaxis={"visible": False},
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+    )
+
+    legend_chips = [
+        html.Span(
+            [
+                html.Span(
+                    className="d-inline-block me-1",
+                    style={
+                        "width": "10px",
+                        "height": "10px",
+                        "borderRadius": "2px",
+                        "backgroundColor": NEEDS_WANTS_COLORS[row.Classification],
+                    },
+                ),
+                f"{NEEDS_WANTS_LABELS[row.Classification]}: ${row.Amount:,.0f} ({row.pct_of_total:.0f}%)",
+            ],
+            className="d-inline-flex align-items-center me-4",
+        )
+        for row in summary.itertuples()
+    ]
+
+    return html.Div(
+        [
+            html.H6("Actual Spend: Needs vs. Wants vs. Other", className="text-center mt-4"),
+            dcc.Graph(figure=fig, config={"displayModeBar": False}),
+            html.Div(legend_chips, className="d-flex justify-content-center mb-2"),
+        ],
+        className="mt-2",
+    )
 
 
 def build_drilldown_accordion(result: pd.DataFrame, transactions_df: pd.DataFrame | None):
