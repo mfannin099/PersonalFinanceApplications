@@ -24,6 +24,7 @@ from Budget.budgeting import (
     budget_summary,
     budget_vs_actual,
     filter_to_recent_window,
+    relabel_for_budget,
     suggested_allocations,
 )
 from CreditCard.analytics import needs_vs_wants, with_classification
@@ -127,7 +128,10 @@ def build_needs_wants_section(transactions_df: pd.DataFrame | None):
 def build_drilldown_accordion(result: pd.DataFrame, transactions_df: pd.DataFrame | None):
     if transactions_df is None or transactions_df.empty:
         return html.Div()
-    classified = with_classification(transactions_df)
+    # Classify using CreditCard's raw category names first, then relabel
+    # ("Shopping" -> "Misc Shopping") so filtering against `result`'s
+    # Budget-labeled categories below actually matches.
+    classified = relabel_for_budget(with_classification(transactions_df))
     items = []
     for category in result.loc[result["Actual Amount"] > 0, "Category"]:
         subset = classified.loc[

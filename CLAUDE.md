@@ -68,25 +68,36 @@ per folder, run separately).
     Streamlit-style sys.path trick, so there's no local-import variant.
   - `budgeting.py` — pure, Dash-free budgeting logic (unit-tested in
     `tests/test_budgeting.py`), parallel to `CreditCard/analytics.py`:
-    - `BUDGET_CATEGORIES` — `CreditCard.categorize.CATEGORIES` reused
-      verbatim (so a categorized card transaction maps into the budget with
-      no translation layer) plus five categories that never appear on a
-      card statement: `Rent/Mortgage`, `Insurance`, `Savings`,
-      `Debt Payments`, `Childcare`.
-    - `suggested_allocations` — starting-point $ allocations for one of four
-      preset methods (`50/30/20`, `Zero-Based`, `Envelope`,
-      `Pay Yourself First`); these seed the editable allocations table, they
-      aren't a final answer. `Envelope` currently shares `50/30/20`'s
-      formula — the methods differ in UI framing (hard-cap styling), not
-      allocation math. Within any bucket (or across everything, for
-      Zero-Based), the split uses `CATEGORY_WEIGHTS` — not an even split —
-      so e.g. `Rent/Mortgage` is suggested a realistic multiple of `Fees &
-      Adjustments` rather than an identical share; the weights are rough
+    - `BUDGET_CATEGORIES` — most of `CreditCard.categorize.CATEGORIES`
+      reused verbatim (so a categorized card transaction maps into the
+      budget with no translation layer), plus four categories that never
+      appear on a card statement: `Rent/Mortgage`, `Insurance`, `Savings`,
+      `Debt Payments`. Two exceptions to "verbatim": `"Money out"` and
+      `"Fees & Adjustments"` are excluded entirely (not budget line items —
+      see Notes below), and `"Shopping"` is relabeled `"Misc Shopping"` via
+      `relabel_for_budget`/`_CARD_CATEGORY_RELABELS`.
+    - `relabel_for_budget` — renames a categorized statement's `Category`
+      values to match Budget's labels (currently just `"Shopping"` ->
+      `"Misc Shopping"`). Used wherever a transaction's raw CreditCard
+      category needs to line up with `BUDGET_CATEGORIES` — inside
+      `budget_vs_actual` itself, and in `Budget/app.py`'s drill-down
+      accordion (which classifies with the raw category first via
+      `with_classification`, *then* relabels, so the Essential/Discretionary
+      mapping isn't broken by the rename).
+    - `suggested_allocations` — starting-point $ allocations for one of two
+      preset methods (`50/30/20`, `Pay Yourself First`); these seed the
+      editable allocations table, they aren't a final answer. (`Zero-Based`
+      and `Envelope` were considered but removed — see Notes below.) Within
+      each bucket, the split uses `CATEGORY_WEIGHTS` — not an even split —
+      so e.g. `Rent/Mortgage` is suggested a realistic multiple of `Gas`
+      rather than an identical share; the weights are rough
       typical-household proportions, not a precision budgeting model.
     - `budget_vs_actual` — budgeted vs. actual $ per category, with
-      variance/%-used/status, for driving the progress bars. The five
+      variance/%-used/status, for driving the progress bars. The four
       non-card categories always get `Actual Amount == 0` since they never
-      appear on a card statement.
+      appear on a card statement. Transactions categorized `"Money out"` or
+      `"Fees & Adjustments"` are excluded entirely — not shown as $0, just
+      not counted anywhere in the Budget app.
     - `budget_summary` — total income/budgeted/unallocated, for the
       "Unallocated" badge.
     - `filter_to_recent_window` — a budget is a monthly plan, so an
@@ -144,3 +155,27 @@ uv run pytest
   folder (none exists). Only `CreditCard/data/merchant_overrides.json` is
   read/written by `Budget/app.py`, and that's shared, pre-existing
   categorization state, not budget state.
+- `Budget/budgeting.py`'s preset list was trimmed from four methods down to
+  `50/30/20` and `Pay Yourself First`. `Zero-Based` and `Envelope` were
+  removed rather than kept as options — `Envelope` had never had a distinct
+  allocation formula (it reused `50/30/20`'s, differing only in intended UI
+  framing that was never built), and `Zero-Based`'s "every category gets a
+  nonzero job" seeding added a method with no real behavioral difference
+  from the other two once weighted. `suggested_allocations("Zero-Based", …)`
+  / `suggested_allocations("Envelope", …)` now raise `ValueError` like any
+  other unrecognized method name.
+- The "Income Type" (Gross/Net) toggle in `Budget/app.py` is **not read by
+  any callback** — it's a caption-only label. Selecting "Gross" changes
+  nothing about `suggested_allocations` or any other calculation; the
+  entered dollar amount is used as-is either way. This was a deliberate v1
+  scope decision (no automatic tax/withholding conversion), but the toggle
+  having zero functional effect is easy to miss since it looks interactive.
+- `Budget/budgeting.py`'s category list was trimmed by request: `Childcare`
+  (a `NON_CARD_CATEGORIES` entry) was dropped outright; `"Money out"` and
+  `"Fees & Adjustments"` (CreditCard categories) are excluded from every
+  Budget view — a transaction categorized either way by CreditCard simply
+  isn't counted anywhere in the Budget app, it doesn't fall back into
+  another bucket; and `"Shopping"` reads as `"Misc Shopping"` in Budget
+  (CreditCard itself is untouched — its own taxonomy, keyword rules, and
+  tests still use `"Shopping"`, `"Money out"`, `"Fees & Adjustments"`
+  unchanged, since those are a separate, already-tested app).
