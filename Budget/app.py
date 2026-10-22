@@ -39,8 +39,17 @@ STATUS_COLOR = {"Under": "success", "Near": "warning", "Over": "danger", "No Bud
 NEEDS_WANTS_LABELS = {"Essential": "Needs", "Discretionary": "Wants", "Other": "Other"}
 NEEDS_WANTS_COLORS = {"Essential": "#2a78d6", "Discretionary": "#eb6834", "Other": "#1baf7a"}
 
-app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP], suppress_callback_exceptions=True)
-app.title = "Budget"
+app = Dash(
+    __name__,
+    external_stylesheets=[dbc.themes.ZEPHYR, dbc.icons.BOOTSTRAP],
+    suppress_callback_exceptions=True,
+)
+app.title = "Budget Studio"
+
+
+def icon(name: str, className: str = "") -> html.I:
+    """A Bootstrap Icon glyph, e.g. icon('cash-coin') — used in place of emoji throughout."""
+    return html.I(className=f"bi bi-{name} {className}".strip())
 
 
 def _clean_allocations(table_data: list[dict]) -> pd.DataFrame:
@@ -245,83 +254,108 @@ def build_drilldown_accordion(result: pd.DataFrame, transactions_df: pd.DataFram
 
 app.layout = dbc.Container(
     [
-        html.H2("📅 Budget", className="my-3"),
+        html.Div(
+            [
+                html.H2([icon("piggy-bank", "me-2"), "Budget Studio"], className="mb-1"),
+                html.P(
+                    "Build a budget from a preset, then see how your real spending compares.",
+                    className="text-muted",
+                ),
+            ],
+            className="my-4",
+        ),
         dcc.Store(id="cleaned-transactions-store"),
         dcc.Store(id="transactions-store"),
         dcc.Store(id="category-baseline-store"),
         dbc.Card(
-            dbc.CardBody(
-                [
-                    html.H5("Income & Method"),
-                    dbc.Row(
-                        [
-                            dbc.Col(
-                                [
-                                    dbc.Label("Monthly Income"),
-                                    dbc.Input(id="income-amount", type="number", min=0, placeholder="e.g. 5000"),
-                                ],
-                                md=4,
-                            ),
-                            dbc.Col(
-                                [
-                                    dbc.Label("Income Type"),
-                                    dbc.RadioItems(
-                                        id="income-type",
-                                        options=[{"label": "Gross", "value": "Gross"}, {"label": "Net", "value": "Net"}],
-                                        value="Net",
-                                        inline=True,
-                                    ),
-                                    html.Div(
-                                        "Presets assume take-home (net) pay — no automatic tax conversion "
-                                        "is applied when Gross is selected.",
-                                        className="text-muted small",
-                                    ),
-                                ],
-                                md=4,
-                            ),
-                            dbc.Col(
-                                [
-                                    dbc.Label("Budgeting Method"),
-                                    dcc.Dropdown(
-                                        id="preset-dropdown",
-                                        options=[{"label": name, "value": name} for name in PRESETS],
-                                        value="50/30/20",
-                                        clearable=False,
-                                    ),
-                                    html.Div(id="preset-description", className="text-muted small mt-1"),
-                                ],
-                                md=4,
-                            ),
-                        ]
-                    ),
-                    dbc.Collapse(
+            [
+                dbc.CardHeader([icon("cash-coin", "me-2"), "Income & Method"]),
+                dbc.CardBody(
+                    [
                         dbc.Row(
-                            dbc.Col(
-                                [
-                                    dbc.Label("Savings Rate (%)"),
-                                    dbc.Input(id="savings-rate-input", type="number", min=0, max=100, value=20),
-                                ],
-                                md=4,
-                            ),
-                            className="mt-2",
+                            [
+                                dbc.Col(
+                                    [
+                                        dbc.Label("Monthly Income"),
+                                        dbc.Input(
+                                            id="income-amount", type="number", min=0, placeholder="e.g. 5000"
+                                        ),
+                                    ],
+                                    md=4,
+                                ),
+                                dbc.Col(
+                                    [
+                                        dbc.Label("Income Type"),
+                                        dbc.RadioItems(
+                                            id="income-type",
+                                            options=[
+                                                {"label": "Gross", "value": "Gross"},
+                                                {"label": "Net", "value": "Net"},
+                                            ],
+                                            value="Net",
+                                            inline=True,
+                                        ),
+                                        html.Div(
+                                            "Presets assume take-home (net) pay — no automatic tax conversion "
+                                            "is applied when Gross is selected.",
+                                            className="text-muted small",
+                                        ),
+                                    ],
+                                    md=4,
+                                ),
+                                dbc.Col(
+                                    [
+                                        dbc.Label("Budgeting Method"),
+                                        dcc.Dropdown(
+                                            id="preset-dropdown",
+                                            options=[{"label": name, "value": name} for name in PRESETS],
+                                            value="50/30/20",
+                                            clearable=False,
+                                        ),
+                                        html.Div(id="preset-description", className="text-muted small mt-1"),
+                                    ],
+                                    md=4,
+                                ),
+                            ]
                         ),
-                        id="savings-rate-collapse",
-                        is_open=False,
-                    ),
-                    dbc.Button("Generate Suggested Budget", id="generate-budget-btn", color="primary", className="mt-3"),
-                ]
-            ),
-            className="mb-4",
+                        dbc.Collapse(
+                            dbc.Row(
+                                dbc.Col(
+                                    [
+                                        dbc.Label("Savings Rate (%)"),
+                                        dbc.Input(
+                                            id="savings-rate-input", type="number", min=0, max=100, value=20
+                                        ),
+                                    ],
+                                    md=4,
+                                ),
+                                className="mt-2",
+                            ),
+                            id="savings-rate-collapse",
+                            is_open=False,
+                        ),
+                        dbc.Button(
+                            [icon("magic", "me-2"), "Generate Suggested Budget"],
+                            id="generate-budget-btn",
+                            color="primary",
+                            className="mt-3",
+                        ),
+                    ]
+                ),
+            ],
+            className="mb-4 shadow-sm",
         ),
         dbc.Card(
-            dbc.CardBody(
-                [
+            [
+                dbc.CardHeader(
                     html.Div(
                         [
-                            html.H5("Allocations", className="d-inline-block me-3"),
+                            html.Span([icon("sliders", "me-2"), "Allocations"], className="d-inline-block me-3"),
                             dbc.Badge("Unallocated: $0.00", id="unallocated-badge", color="success"),
                         ]
-                    ),
+                    )
+                ),
+                dbc.CardBody(
                     dash_table.DataTable(
                         id="allocations-table",
                         data=[{"Category": c, "Budgeted Amount": 0.0} for c in BUDGET_CATEGORIES],
@@ -332,34 +366,44 @@ app.layout = dbc.Container(
                         editable=True,
                         style_table={"overflowX": "auto"},
                         page_size=20,
-                    ),
-                ]
-            ),
-            className="mb-4",
+                    )
+                ),
+            ],
+            className="mb-4 shadow-sm",
         ),
         dbc.Card(
-            dbc.CardBody(
-                [
-                    html.H5("Upload & Categorize Credit Card Statement"),
-                    html.P(
-                        "Expected CSV columns: Transaction Date, Description, Amount "
-                        "(Type and Category are used when present).",
-                        className="text-muted small",
-                    ),
-                    dcc.Upload(
-                        id="upload-statement",
-                        children=html.Div("Drag and drop or click to upload a statement CSV"),
-                        className="border rounded p-4 text-center",
-                    ),
-                    html.Div(id="upload-alert", className="mt-2"),
-                    html.Div(id="category-review"),
-                ]
-            ),
-            className="mb-4",
+            [
+                dbc.CardHeader([icon("upload", "me-2"), "Upload & Categorize Credit Card Statement"]),
+                dbc.CardBody(
+                    [
+                        html.P(
+                            "Expected CSV columns: Transaction Date, Description, Amount "
+                            "(Type and Category are used when present).",
+                            className="text-muted small",
+                        ),
+                        dcc.Upload(
+                            id="upload-statement",
+                            children=html.Div(
+                                [
+                                    icon("cloud-arrow-up", "fs-2 d-block mb-2 text-primary"),
+                                    "Drag and drop or click to upload a statement CSV",
+                                ]
+                            ),
+                            className="border rounded-3 p-4 text-center",
+                        ),
+                        html.Div(id="upload-alert", className="mt-2"),
+                        html.Div(id="category-review"),
+                    ]
+                ),
+            ],
+            className="mb-4 shadow-sm",
         ),
         dbc.Card(
-            dbc.CardBody([html.H5("Budget vs. Actual"), html.Div(id="budget-vs-actual-section")]),
-            className="mb-4",
+            [
+                dbc.CardHeader([icon("bar-chart-line", "me-2"), "Budget vs. Actual"]),
+                dbc.CardBody(html.Div(id="budget-vs-actual-section")),
+            ],
+            className="mb-4 shadow-sm",
         ),
     ],
     fluid=True,

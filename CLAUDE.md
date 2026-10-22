@@ -220,3 +220,13 @@ uv run pytest
   user never actually chose. The review list itself is collapsed by default
   unless something is actually `"Uncategorized"` (`is_open=uncategorized_count > 0`),
   behind a toggle button so a long merchant list doesn't dominate the page.
+- `Budget/app.py`'s visual design was deliberately reworked by request,
+  informed by a look at YNAB/Monarch Money/Copilot Money's UI/UX: titled
+  "Budget Studio" (`app.title`, not just the folder name "Budget"), themed
+  with `dbc.themes.ZEPHYR` (+ `dbc.icons.BOOTSTRAP` for icon glyphs) instead
+  of the bare `dbc.themes.BOOTSTRAP` default, every section header uses a
+  Bootstrap Icon (`icon()` helper — `html.I(className="bi bi-...")`)
+  instead of emoji, and each card uses `dbc.CardHeader` + `dbc.CardBody`
+  rather than a plain `<h5>` inside the body. A top-of-page KPI stat-tile
+  row (Monarch/Copilot's "big numbers up top" pattern) was tried and then
+  explicitly removed by request — don't re-add it without asking.
