@@ -116,6 +116,13 @@ per folder, run separately).
       merchant" window in `CreditCard/app.py`. Applied once, right after
       `clean_statement`, so both `cleaned-transactions-store` and
       `transactions-store` only ever hold the filtered window.
+  - `export.py` — pure, Dash-free `budget_to_csv`/`budget_to_pdf` (the PDF
+    uses `reportlab`; unit-tested in `tests/test_export.py`). Wired to the
+    CSV/PDF buttons in the Allocations card header via `dcc.Download`. Export
+    is the plan (Category/Budgeted) plus Actual/Variance/Status when a
+    statement is uploaded; non-card categories' actual cells are left blank.
+    There is no "Load budget CSV" yet, so a saved file is for reference, not
+    restore — session-only state is otherwise unchanged.
   - `assets/style.css` — Dash auto-serves `Budget/assets/`; holds the app's
     custom styling (Inter font, gradient header band, card/progress/dropzone/
     status-chip classes). `app.py` uses these classes (`app-header`,

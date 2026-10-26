@@ -27,6 +27,7 @@ from Budget.budgeting import (
     relabel_for_budget,
     suggested_allocations,
 )
+from Budget.export import budget_to_csv, budget_to_pdf
 from CreditCard.analytics import needs_vs_wants, with_classification
 from CreditCard.categorize import CATEGORIES, categorize_transactions, load_overrides, save_override
 from CreditCard.cleaning import clean_statement
@@ -460,7 +461,20 @@ app.layout = html.Div(
                             "sliders",
                             "Allocations",
                             "Edit any amount — everything below updates instantly",
-                            extra=dbc.Badge("Unallocated: $0.00", id="unallocated-badge", color="success", pill=True),
+                            extra=html.Div(
+                [
+                    dbc.Badge("Unallocated: $0.00", id="unallocated-badge", color="success", pill=True),
+                    dbc.ButtonGroup(
+                        [
+                            dbc.Button([icon("filetype-csv", "me-1"), "CSV"], id="save-csv-btn", outline=True, size="sm", color="primary"),
+                            dbc.Button([icon("filetype-pdf", "me-1"), "PDF"], id="save-pdf-btn", outline=True, size="sm", color="primary"),
+                        ],
+                        className="ms-3",
+                    ),
+                    dcc.Download(id="download-budget"),
+                ],
+                className="d-flex align-items-center",
+            ),
                         ),
                         dbc.CardBody(
                             [
@@ -534,6 +548,30 @@ app.layout = html.Div(
         ),
     ]
 )
+
+
+@app.callback(
+    Output("download-budget", "data"),
+    Input("save-csv-btn", "n_clicks"),
+    Input("save-pdf-btn", "n_clicks"),
+    State("allocations-table", "data"),
+    State("income-amount", "value"),
+    State("preset-dropdown", "value"),
+    State("transactions-store", "data"),
+    prevent_initial_call=True,
+)
+def save_budget(csv_clicks, pdf_clicks, table_data, income, preset, transaction_records):
+    triggered = callback_context.triggered_id
+    if not (csv_clicks or pdf_clicks):
+        raise PreventUpdate
+
+    transactions_df = pd.DataFrame.from_records(transaction_records) if transaction_records else None
+    result = budget_vs_actual(_clean_allocations(table_data), transactions_df)
+    has_actuals = transactions_df is not None
+    income = income or 0
+    if triggered == "save-csv-btn":
+        return dcc.send_string(budget_to_csv(income, preset, result, has_actuals), "budget.csv")
+    return dcc.send_bytes(budget_to_pdf(income, preset, result, has_actuals), "budget.pdf")
 
 
 @app.callback(
