@@ -372,12 +372,16 @@ app.layout = html.Div(
                                     [
                                         dbc.Col(
                                             [
-                                                dbc.Label("Monthly Income"),
+                                                dbc.Label(["Monthly Income ", html.Span("*", className="text-danger")]),
                                                 dbc.InputGroup(
                                                     [
                                                         dbc.InputGroupText("$"),
                                                         dbc.Input(
-                                                            id="income-amount", type="number", min=0, placeholder="5,000"
+                                                            id="income-amount", type="number", min=0, placeholder="5000"
+                                                        ),
+                                                        dbc.FormFeedback(
+                                                            "Enter your monthly income to generate a budget.",
+                                                            type="invalid",
                                                         ),
                                                     ]
                                                 ),
@@ -548,6 +552,15 @@ def update_preset_description(preset):
 
 
 @app.callback(
+    Output("income-amount", "invalid"),
+    Input("generate-budget-btn", "n_clicks"),
+    Input("income-amount", "value"),
+)
+def flag_missing_income(n_clicks, income):
+    return bool(n_clicks) and not income
+
+
+@app.callback(
     Output("allocations-table", "data"),
     Input("generate-budget-btn", "n_clicks"),
     State("income-amount", "value"),
@@ -556,7 +569,8 @@ def update_preset_description(preset):
     prevent_initial_call=True,
 )
 def generate_budget(n_clicks, income, preset, savings_rate_pct):
-    income = income or 0
+    if not income:
+        raise PreventUpdate
     savings_rate = (savings_rate_pct or 20) / 100
     df = suggested_allocations(preset, income, savings_rate=savings_rate)
     return df.to_dict("records")
