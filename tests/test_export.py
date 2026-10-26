@@ -32,3 +32,15 @@ def test_csv_with_actuals_includes_variance_and_status():
 def test_pdf_is_valid_pdf_bytes():
     for has_actuals in (False, True):
         assert budget_to_pdf(5000, "Zero-Based", _result(), has_actuals).startswith(b"%PDF")
+
+
+def test_csv_gross_income_adds_tax_rows():
+    rows = list(csv.reader(io.StringIO(budget_to_csv(4000, "50/30/20", _result(), False, 5000, 20))))
+    assert rows[0] == ["Gross Monthly Income", "5000.00"]
+    assert rows[1] == ["Estimated Tax Rate (%)", "20"]
+    assert rows[2] == ["Net Monthly Income", "4000.00"]
+    assert rows[3] == ["Budgeting Method", "50/30/20"]
+
+
+def test_pdf_gross_income_is_valid_pdf():
+    assert budget_to_pdf(4000, "50/30/20", _result(), True, 5000, 20).startswith(b"%PDF")

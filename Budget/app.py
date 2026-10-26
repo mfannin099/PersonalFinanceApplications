@@ -24,6 +24,7 @@ from Budget.budgeting import (
     budget_summary,
     budget_vs_actual,
     filter_to_recent_window,
+    net_income,
     relabel_for_budget,
     suggested_allocations,
 )
@@ -399,8 +400,7 @@ app.layout = html.Div(
                                                     ),
                                                 ),
                                                 html.Div(
-                                                    "Presets assume take-home (net) pay — no automatic tax "
-                                                    "conversion is applied when Gross is selected.",
+                                                    "Choose Gross to enter pre-tax pay — you'll set an estimated tax rate.",
                                                     className="preset-hint",
                                                 ),
                                             ],
@@ -421,6 +421,38 @@ app.layout = html.Div(
                                         ),
                                     ],
                                     className="g-4",
+                                ),
+                                dbc.Collapse(
+                                    dbc.Row(
+                                        [
+                                            dbc.Col(
+                                                [
+                                                    dbc.Label("Estimated Tax Rate"),
+                                                    dbc.InputGroup(
+                                                        [
+                                                            dbc.Input(
+                                                                id="tax-rate-input", type="number", min=0, max=100, value=22
+                                                            ),
+                                                            dbc.InputGroupText("%"),
+                                                        ]
+                                                    ),
+                                                    html.Div("Effective rate: federal + state + FICA.", className="preset-hint"),
+                                                ],
+                                                md=4,
+                                            ),
+                                            dbc.Col(
+                                                [
+                                                    dbc.Label("Net Monthly Income"),
+                                                    html.Div(id="net-income-display", className="fs-5 fw-bold pt-1"),
+                                                    html.Div("The budget is built on this take-home amount.", className="preset-hint"),
+                                                ],
+                                                md=4,
+                                            ),
+                                        ],
+                                        className="mt-2",
+                                    ),
+                                    id="tax-rate-collapse",
+                                    is_open=False,
                                 ),
                                 dbc.Collapse(
                                     dbc.Row(
@@ -558,9 +590,11 @@ app.layout = html.Div(
     State("income-amount", "value"),
     State("preset-dropdown", "value"),
     State("transactions-store", "data"),
+    State("income-type", "value"),
+    State("tax-rate-input", "value"),
     prevent_initial_call=True,
 )
-def save_budget(csv_clicks, pdf_clicks, table_data, income, preset, transaction_records):
+def save_budget(csv_clicks, pdf_clicks, table_data, income, preset, transaction_records, income_type, tax_rate):
     triggered = callback_context.triggered_id
     if not (csv_clicks or pdf_clicks):
         raise PreventUpdate
@@ -568,10 +602,23 @@ def save_budget(csv_clicks, pdf_clicks, table_data, income, preset, transaction_
     transactions_df = pd.DataFrame.from_records(transaction_records) if transaction_records else None
     result = budget_vs_actual(_clean_allocations(table_data), transactions_df)
     has_actuals = transactions_df is not None
-    income = income or 0
+    gross_income = (income or 0) if income_type == "Gross" else None
+    income = net_income(income or 0, income_type, tax_rate)
+    tax_args = (gross_income, tax_rate)
     if triggered == "save-csv-btn":
-        return dcc.send_string(budget_to_csv(income, preset, result, has_actuals), "budget.csv")
-    return dcc.send_bytes(budget_to_pdf(income, preset, result, has_actuals), "budget.pdf")
+        return dcc.send_string(budget_to_csv(income, preset, result, has_actuals, *tax_args), "budget.csv")
+    return dcc.send_bytes(budget_to_pdf(income, preset, result, has_actuals, *tax_args), "budget.pdf")
+
+
+@app.callback(
+    Output("tax-rate-collapse", "is_open"),
+    Output("net-income-display", "children"),
+    Input("income-type", "value"),
+    Input("income-amount", "value"),
+    Input("tax-rate-input", "value"),
+)
+def update_tax_section(income_type, income, tax_rate):
+    return income_type == "Gross", f"${net_income(income or 0, income_type, tax_rate):,.2f}"
 
 
 @app.callback(
@@ -598,11 +645,14 @@ def flag_missing_income(n_clicks, income):
     State("income-amount", "value"),
     State("preset-dropdown", "value"),
     State("savings-rate-input", "value"),
+    State("income-type", "value"),
+    State("tax-rate-input", "value"),
     prevent_initial_call=True,
 )
-def generate_budget(n_clicks, income, preset, savings_rate_pct):
+def generate_budget(n_clicks, income, preset, savings_rate_pct, income_type, tax_rate):
     if not income:
         raise PreventUpdate
+    income = net_income(income, income_type, tax_rate)
     savings_rate = (savings_rate_pct or 20) / 100
     df = suggested_allocations(preset, income, savings_rate=savings_rate)
     return df.to_dict("records")
@@ -614,9 +664,11 @@ def generate_budget(n_clicks, income, preset, savings_rate_pct):
     Output("alloc-summary", "children"),
     Input("allocations-table", "data"),
     Input("income-amount", "value"),
+    Input("income-type", "value"),
+    Input("tax-rate-input", "value"),
 )
-def update_unallocated_badge(table_data, income):
-    income = income or 0
+def update_unallocated_badge(table_data, income, income_type, tax_rate):
+    income = net_income(income or 0, income_type, tax_rate)
     summary = budget_summary(income, _clean_allocations(table_data))
     unallocated = summary["unallocated"]
     color = "success" if abs(unallocated) < 1 else ("danger" if unallocated < 0 else "warning")
