@@ -133,6 +133,13 @@ def _weighted_split(allocations: dict[str, float], categories: list[str], amount
     for category in categories:
         share = amount * CATEGORY_WEIGHTS.get(category, 0) / total_weight
         allocations[category] = round(share, 2)
+    # Rounding each share to cents can leave the split a cent or two off
+    # ``amount``; give the leftover to the heaviest-weighted category so every
+    # split (and so every preset) adds up exactly.
+    leftover = round(amount - sum(allocations[c] for c in categories), 2)
+    if leftover:
+        largest = max(categories, key=lambda c: CATEGORY_WEIGHTS.get(c, 0))
+        allocations[largest] = round(allocations[largest] + leftover, 2)
 
 
 def _suggest_50_30_20(income: float) -> dict[str, float]:
