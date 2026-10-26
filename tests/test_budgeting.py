@@ -234,3 +234,20 @@ def test_net_income_applies_tax_rate_to_gross():
 def test_net_income_clamps_out_of_range_rates():
     assert net_income(5000, "Gross", 150) == 0
     assert net_income(5000, "Gross", -10) == 5000
+
+
+def test_manual_actuals_fill_non_card_categories():
+    allocations = pd.DataFrame({"Category": ["Rent/Mortgage", "Savings"], "Budgeted Amount": [1500.0, 500.0]})
+    result = budget_vs_actual(allocations, None, {"Rent/Mortgage": 1600.0})
+    rent = result.loc[result["Category"] == "Rent/Mortgage"].iloc[0]
+    assert rent["Actual Amount"] == 1600.0
+    assert rent["Variance"] == -100.0
+    assert rent["Status"] == "Over"
+    savings = result.loc[result["Category"] == "Savings"].iloc[0]
+    assert savings["Actual Amount"] == 0.0
+
+
+def test_manual_actuals_ignored_for_card_categories():
+    allocations = pd.DataFrame({"Category": ["Groceries"], "Budgeted Amount": [400.0]})
+    result = budget_vs_actual(allocations, None, {"Groceries": 999.0})
+    assert result.loc[result["Category"] == "Groceries", "Actual Amount"].iloc[0] == 0.0

@@ -81,6 +81,11 @@ def icon(name: str, className: str = "") -> html.I:
     return html.I(className=f"bi bi-{name} {className}".strip())
 
 
+def _manual_actuals(values: list | None) -> dict[str, float]:
+    """Map the manual-actual inputs (laid out in ``NON_CARD_CATEGORIES`` order) to {category: $}."""
+    return {category: float(value or 0) for category, value in zip(NON_CARD_CATEGORIES, values or [])}
+
+
 def _clean_allocations(table_data: list[dict]) -> pd.DataFrame:
     df = pd.DataFrame(table_data) if table_data else pd.DataFrame(columns=["Category", "Budgeted Amount"])
     df["Budgeted Amount"] = pd.to_numeric(df.get("Budgeted Amount"), errors="coerce").fillna(0.0)
@@ -187,6 +192,7 @@ def build_progress_row(row: pd.Series):
                 className="d-flex justify-content-between align-items-center",
             ),
             dbc.Progress(value=display_pct, color=STATUS_COLOR.get(status, "secondary")),
+            html.Div("Manually entered", className="note") if row["Category"] in NON_CARD_CATEGORIES else None,
         ],
         className="cat-row",
     )
@@ -301,6 +307,8 @@ def build_drilldown_accordion(result: pd.DataFrame, transactions_df: pd.DataFram
     classified = relabel_for_budget(with_classification(transactions_df))
     items = []
     for category in result.loc[result["Actual Amount"] > 0, "Category"]:
+        if category in NON_CARD_CATEGORIES:
+            continue  # manually entered, no underlying transactions to drill into
         subset = classified.loc[
             classified["Category"] == category, ["Transaction Date", "Description", "Amount", "Classification"]
         ]
@@ -571,7 +579,49 @@ app.layout = html.Div(
                 dbc.Card(
                     [
                         card_header(4, "bar-chart-line", "Budget vs. Actual", "Your plan against the last 30 days of spending"),
-                        dbc.CardBody(dcc.Loading(html.Div(id="budget-vs-actual-section"), type="dot", color="#3b5bdb")),
+                        dbc.CardBody(
+                            [
+                                html.Div(
+                                    [
+                                        html.Div(
+                                            [icon("pencil-square", "me-2 text-muted"), "Manually tracked spending"],
+                                            className="fw-semibold mb-1",
+                                        ),
+                                        html.Div(
+                                            "These never appear on a card statement — enter what you actually "
+                                            "paid this month.",
+                                            className="section-sub mb-3",
+                                        ),
+                                        dbc.Row(
+                                            [
+                                                dbc.Col(
+                                                    [
+                                                        dbc.Label(category),
+                                                        dbc.InputGroup(
+                                                            [
+                                                                dbc.InputGroupText("$"),
+                                                                dbc.Input(
+                                                                    id={"type": "manual-actual", "index": category},
+                                                                    type="number",
+                                                                    min=0,
+                                                                    placeholder="0",
+                                                                    debounce=True,
+                                                                ),
+                                                            ]
+                                                        ),
+                                                    ],
+                                                    md=4,
+                                                )
+                                                for category in NON_CARD_CATEGORIES
+                                            ],
+                                            className="g-3",
+                                        ),
+                                    ],
+                                    className="manual-actuals",
+                                ),
+                                dcc.Loading(html.Div(id="budget-vs-actual-section"), type="dot", color="#3b5bdb"),
+                            ]
+                        ),
                     ],
                     className="mb-4",
                 ),
@@ -592,16 +642,20 @@ app.layout = html.Div(
     State("transactions-store", "data"),
     State("income-type", "value"),
     State("tax-rate-input", "value"),
+    State({"type": "manual-actual", "index": ALL}, "value"),
     prevent_initial_call=True,
 )
-def save_budget(csv_clicks, pdf_clicks, table_data, income, preset, transaction_records, income_type, tax_rate):
+def save_budget(
+    csv_clicks, pdf_clicks, table_data, income, preset, transaction_records, income_type, tax_rate, manual_values
+):
     triggered = callback_context.triggered_id
     if not (csv_clicks or pdf_clicks):
         raise PreventUpdate
 
     transactions_df = pd.DataFrame.from_records(transaction_records) if transaction_records else None
-    result = budget_vs_actual(_clean_allocations(table_data), transactions_df)
-    has_actuals = transactions_df is not None
+    manual_actuals = _manual_actuals(manual_values)
+    result = budget_vs_actual(_clean_allocations(table_data), transactions_df, manual_actuals)
+    has_actuals = transactions_df is not None or any(manual_actuals.values())
     gross_income = (income or 0) if income_type == "Gross" else None
     income = net_income(income or 0, income_type, tax_rate)
     tax_args = (gross_income, tax_rate)
@@ -770,21 +824,19 @@ def recategorize_merchants(selected_categories, cleaned_records, baseline):
     Output("budget-vs-actual-section", "children"),
     Input("allocations-table", "data"),
     Input("transactions-store", "data"),
+    Input({"type": "manual-actual", "index": ALL}, "value"),
 )
-def update_budget_vs_actual(table_data, transaction_records):
+def update_budget_vs_actual(table_data, transaction_records, manual_values):
     allocations_df = _clean_allocations(table_data)
     transactions_df = pd.DataFrame.from_records(transaction_records) if transaction_records else None
-    result = budget_vs_actual(allocations_df, transactions_df)
-    # Rent/Mortgage, Savings and Debt Payments never appear on a card statement,
-    # so an over/under comparison is meaningless for them — keep them out of it.
-    result = result[~result["Category"].isin(NON_CARD_CATEGORIES)]
+    result = budget_vs_actual(allocations_df, transactions_df, _manual_actuals(manual_values))
 
     no_data_hint = (
         []
         if transactions_df is not None
         else [
             dbc.Alert(
-                [icon("info-circle", "me-2"), "Upload a statement in step 3 to see your actual spending against this plan."],
+                [icon("info-circle", "me-2"), "Upload a statement in step 3 to see your card spending against this plan."],
                 color="light",
                 className="border",
             )

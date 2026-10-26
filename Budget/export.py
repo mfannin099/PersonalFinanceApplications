@@ -2,7 +2,7 @@
 
 Both exporters take the same inputs: the plan's ``income`` (take-home/net) and ``method``, the
 ``result`` frame from ``budget_vs_actual`` (one row per budget category), and
-``has_actuals`` — whether a statement was uploaded. Without a statement the
+``has_actuals`` — whether a statement was uploaded or manual actuals were entered. Without a statement the
 export is just the plan (Category/Budgeted); with one it also carries
 Actual/Variance/Status.
 """
@@ -12,7 +12,6 @@ import io
 from datetime import date
 
 import pandas as pd
-from Budget.budgeting import NON_CARD_CATEGORIES
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet
@@ -24,13 +23,7 @@ _ACTUAL_COLUMNS = ["Category", "Budgeted Amount", "Actual Amount", "Variance", "
 
 
 def _table_frame(result: pd.DataFrame, has_actuals: bool) -> pd.DataFrame:
-    if not has_actuals:
-        return result[_PLAN_COLUMNS]
-    # Non-card categories never appear on a card statement, so an actual/variance
-    # for them would be a misleading $0 — leave those cells blank.
-    frame = result[_ACTUAL_COLUMNS].astype(object)
-    frame.loc[frame["Category"].isin(NON_CARD_CATEGORIES), ["Actual Amount", "Variance", "Status"]] = ""
-    return frame
+    return result[_ACTUAL_COLUMNS if has_actuals else _PLAN_COLUMNS]
 
 
 def _income_rows(income: float, gross_income: float | None, tax_rate_pct: float | None) -> list[list[str]]:
