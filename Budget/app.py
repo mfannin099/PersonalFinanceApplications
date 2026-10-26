@@ -169,11 +169,6 @@ def empty_state(glyph: str, title: str, detail: str) -> html.Div:
 def build_progress_row(row: pd.Series):
     pct, actual, budgeted, status = row["Pct Used"], row["Actual Amount"], row["Budgeted Amount"], row["Status"]
     display_pct = min(pct, 100) if pct is not None else (100 if actual > 0 else 0)
-    note = (
-        html.Div("Manually tracked — not on your card statement", className="note")
-        if row["Category"] in NON_CARD_CATEGORIES
-        else None
-    )
     return html.Div(
         [
             html.Div(
@@ -190,7 +185,6 @@ def build_progress_row(row: pd.Series):
                 className="d-flex justify-content-between align-items-center",
             ),
             dbc.Progress(value=display_pct, color=STATUS_COLOR.get(status, "secondary")),
-            note,
         ],
         className="cat-row",
     )
@@ -691,6 +685,9 @@ def update_budget_vs_actual(table_data, transaction_records):
     allocations_df = _clean_allocations(table_data)
     transactions_df = pd.DataFrame.from_records(transaction_records) if transaction_records else None
     result = budget_vs_actual(allocations_df, transactions_df)
+    # Rent/Mortgage, Savings and Debt Payments never appear on a card statement,
+    # so an over/under comparison is meaningless for them — keep them out of it.
+    result = result[~result["Category"].isin(NON_CARD_CATEGORIES)]
 
     no_data_hint = (
         []
