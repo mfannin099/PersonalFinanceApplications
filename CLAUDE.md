@@ -116,6 +116,15 @@ per folder, run separately).
       merchant" window in `CreditCard/app.py`. Applied once, right after
       `clean_statement`, so both `cleaned-transactions-store` and
       `transactions-store` only ever hold the filtered window.
+  - `assets/style.css` — Dash auto-serves `Budget/assets/`; holds the app's
+    custom styling (Inter font, gradient header band, card/progress/dropzone/
+    status-chip classes). `app.py` uses these classes (`app-header`,
+    `app-shell`, `step-pill`, `cat-row`, `dropzone`, ...) plus a shared
+    `TABLE_STYLE` for DataTables. Cards are numbered steps 1-4 (Income &
+    Method -> Allocations -> Upload -> Budget vs. Actual). The Allocations
+    card has an Income/Budgeted/Unallocated summary + meter (inside the
+    card, not a top-of-page KPI row); unallocated within $1 counts as
+    balanced (green) to absorb preset rounding.
   - Reuses the shared `CreditCard/data/merchant_overrides.json` for
     merchant categorization — that's categorization data, not budget data.
     The budget itself (income, chosen preset, allocations) is **session
