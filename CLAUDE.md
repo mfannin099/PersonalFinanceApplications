@@ -112,7 +112,7 @@ per folder, run separately).
       `"Fees & Adjustments"` are excluded entirely — not shown as $0, just
       not counted anywhere in the Budget app.
     - `budget_summary` — total income/budgeted/unallocated, for the
-      "Unallocated" badge.
+      Allocations card's summary row.
     - `filter_to_recent_window` — a budget is a monthly plan, so an
       uploaded statement is trimmed to its most recent `RECENT_WINDOW_DAYS`
       (30) before categorization/budget-vs-actual, instead of comparing
@@ -125,7 +125,7 @@ per folder, run separately).
     uses `reportlab`; unit-tested in `tests/test_export.py`). Wired to the
     CSV/PDF buttons in the Allocations card header via `dcc.Download`. Export
     is the plan (Category/Budgeted) plus Actual/Variance/Status when a
-    statement is uploaded; non-card categories' actual cells are left blank.
+    statement is uploaded or any manual actual was entered.
     There is no "Load budget CSV" yet, so a saved file is for reference, not
     restore — session-only state is otherwise unchanged.
   - `assets/style.css` — Dash auto-serves `Budget/assets/`; holds the app's
@@ -134,9 +134,16 @@ per folder, run separately).
     `app-shell`, `step-pill`, `cat-row`, `dropzone`, ...) plus a shared
     `TABLE_STYLE` for DataTables. Cards are numbered steps 1-4 (Income &
     Method -> Allocations -> Upload -> Budget vs. Actual). The Allocations
-    card has an Income/Budgeted/Unallocated summary + meter (inside the
-    card, not a top-of-page KPI row); unallocated within $1 counts as
-    balanced (green) to absorb preset rounding.
+    card has a Take-home income/Budgeted/Unallocated summary + meter and a
+    status chip (inside the card, not a top-of-page KPI row — the old
+    header "Unallocated" badge was removed as a duplicate of it);
+    unallocated within $1 counts as balanced (green) to absorb preset
+    rounding. The Budget vs. Actual card likewise opens with its own
+    Spent/Budgeted/Remaining summary + over-budget count, hides categories
+    with $0 budgeted and $0 spent, and sorts the progress rows and chart
+    largest-first in the same order (the chart uses an explicit
+    `categoryarray`). With nothing budgeted or spent it shows an
+    `empty_state` instead. A footer states that state is session-only.
   - Reuses the shared `CreditCard/data/merchant_overrides.json` for
     merchant categorization — that's categorization data, not budget data.
     The budget itself (income, chosen preset, allocations) is **session
@@ -198,7 +205,7 @@ uv run pytest
   an "Estimated Tax Rate (%)" input (default 22) and a Net Monthly Income
   readout, and `budgeting.net_income(income, income_type, tax_rate_pct)`
   takes that flat effective rate off. Everything downstream (suggested
-  allocations, the Unallocated badge/summary, exports) is built on the net
+  allocations, the Allocations summary, exports) is built on the net
   amount; there is no real withholding/bracket calculation. CSV/PDF exports
   list Gross income, tax rate and Net income when Gross was selected.
 - `Budget/budgeting.py`'s category list was trimmed/merged by request:
