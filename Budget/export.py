@@ -1,6 +1,6 @@
 """Budget export helpers — pure (Dash-free), parallel to ``budgeting.py``.
 
-Both exporters take the same inputs: the plan's ``income`` and ``method``, the
+Both exporters take the same inputs: the plan's ``income`` (take-home/net) and ``method``, the
 ``result`` frame from ``budget_vs_actual`` (one row per budget category), and
 ``has_actuals`` — whether a statement was uploaded. Without a statement the
 export is just the plan (Category/Budgeted); with one it also carries
@@ -33,14 +33,36 @@ def _table_frame(result: pd.DataFrame, has_actuals: bool) -> pd.DataFrame:
     return frame
 
 
-def budget_to_csv(income: float, method: str, result: pd.DataFrame, has_actuals: bool) -> str:
-    """CSV text: a small ``Field,Value`` header block, a blank row, then the category table."""
+def _income_rows(income: float, gross_income: float | None, tax_rate_pct: float | None) -> list[list[str]]:
+    """Header rows for the income block — gross/tax/net when the user entered gross income."""
+    if gross_income is None:
+        return [["Monthly Income", f"{income:.2f}"]]
+    return [
+        ["Gross Monthly Income", f"{gross_income:.2f}"],
+        ["Estimated Tax Rate (%)", f"{tax_rate_pct or 0:g}"],
+        ["Net Monthly Income", f"{income:.2f}"],
+    ]
+
+
+def budget_to_csv(
+    income: float,
+    method: str,
+    result: pd.DataFrame,
+    has_actuals: bool,
+    gross_income: float | None = None,
+    tax_rate_pct: float | None = None,
+) -> str:
+    """CSV text: a small ``Field,Value`` header block, a blank row, then the category table.
+
+    Pass ``gross_income``/``tax_rate_pct`` when the budget was built from gross pay;
+    ``income`` is always the net amount the allocations are measured against.
+    """
     buffer = io.StringIO()
     writer = csv.writer(buffer)
     total_budgeted = float(result["Budgeted Amount"].sum())
     writer.writerows(
         [
-            ["Monthly Income", f"{income:.2f}"],
+            *_income_rows(income, gross_income, tax_rate_pct),
             ["Budgeting Method", method],
             ["Total Budgeted", f"{total_budgeted:.2f}"],
             ["Unallocated", f"{income - total_budgeted:.2f}"],
@@ -58,7 +80,14 @@ def _money(value: float) -> str:
     return f"{'-' if value < 0 else ''}${abs(value):,.2f}"
 
 
-def budget_to_pdf(income: float, method: str, result: pd.DataFrame, has_actuals: bool) -> bytes:
+def budget_to_pdf(
+    income: float,
+    method: str,
+    result: pd.DataFrame,
+    has_actuals: bool,
+    gross_income: float | None = None,
+    tax_rate_pct: float | None = None,
+) -> bytes:
     """A one-document PDF summary of the plan (and actuals, when a statement was uploaded)."""
     styles = getSampleStyleSheet()
     total_budgeted = float(result["Budgeted Amount"].sum())
@@ -66,7 +95,15 @@ def budget_to_pdf(income: float, method: str, result: pd.DataFrame, has_actuals:
 
     summary = Table(
         [
-            ["Monthly income", _money(income)],
+            *(
+                [["Monthly income", _money(income)]]
+                if gross_income is None
+                else [
+                    ["Gross monthly income", _money(gross_income)],
+                    ["Estimated tax rate", f"{tax_rate_pct or 0:g}%"],
+                    ["Net monthly income", _money(income)],
+                ]
+            ),
             ["Budgeting method", method],
             ["Total budgeted", _money(total_budgeted)],
             ["Unallocated", _money(unallocated)],

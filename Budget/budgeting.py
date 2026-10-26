@@ -244,3 +244,16 @@ def budget_summary(income: float, allocations: pd.DataFrame) -> dict:
         "total_budgeted": total_budgeted,
         "unallocated": round(income - total_budgeted, 2),
     }
+
+
+def net_income(income: float, income_type: str, tax_rate_pct: float | None) -> float:
+    """Take-home income the budget is built on.
+
+    ``"Net"`` income is used as entered. ``"Gross"`` income has a flat
+    effective ``tax_rate_pct`` (0-100, clamped; ``None`` counts as 0) taken
+    off — a deliberately simple estimate, not a withholding calculation.
+    """
+    if income_type != "Gross":
+        return income
+    rate = min(max(tax_rate_pct or 0.0, 0.0), 100.0)
+    return round(income * (1 - rate / 100), 2)

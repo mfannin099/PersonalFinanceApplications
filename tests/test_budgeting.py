@@ -7,6 +7,7 @@ from Budget.budgeting import (
     budget_summary,
     budget_vs_actual,
     filter_to_recent_window,
+    net_income,
     relabel_for_budget,
     suggested_allocations,
 )
@@ -219,3 +220,17 @@ def test_filter_to_recent_window_handles_empty_dataframe():
     df = pd.DataFrame(columns=["Transaction Date", "Description", "Amount"])
     result = filter_to_recent_window(df, days=30)
     assert result.empty
+
+
+def test_net_income_passes_net_through_untouched():
+    assert net_income(5000, "Net", 30) == 5000
+
+
+def test_net_income_applies_tax_rate_to_gross():
+    assert net_income(5000, "Gross", 20) == 4000
+    assert net_income(5000, "Gross", None) == 5000
+
+
+def test_net_income_clamps_out_of_range_rates():
+    assert net_income(5000, "Gross", 150) == 0
+    assert net_income(5000, "Gross", -10) == 5000

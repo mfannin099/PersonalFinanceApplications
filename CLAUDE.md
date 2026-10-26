@@ -189,12 +189,13 @@ uv run pytest
   into Needs/Wants/Savings buckets like `50/30/20`, which is a real
   behavioral difference (`Savings` has no guaranteed floor under
   `Zero-Based`).
-- The "Income Type" (Gross/Net) toggle in `Budget/app.py` is **not read by
-  any callback** — it's a caption-only label. Selecting "Gross" changes
-  nothing about `suggested_allocations` or any other calculation; the
-  entered dollar amount is used as-is either way. This was a deliberate v1
-  scope decision (no automatic tax/withholding conversion), but the toggle
-  having zero functional effect is easy to miss since it looks interactive.
+- The "Income Type" (Gross/Net) toggle is functional: selecting Gross reveals
+  an "Estimated Tax Rate (%)" input (default 22) and a Net Monthly Income
+  readout, and `budgeting.net_income(income, income_type, tax_rate_pct)`
+  takes that flat effective rate off. Everything downstream (suggested
+  allocations, the Unallocated badge/summary, exports) is built on the net
+  amount; there is no real withholding/bracket calculation. CSV/PDF exports
+  list Gross income, tax rate and Net income when Gross was selected.
 - `Budget/budgeting.py`'s category list was trimmed/merged by request:
   `Childcare` (a `NON_CARD_CATEGORIES` entry) was dropped outright;
   `"Money out"` and `"Fees & Adjustments"` (CreditCard categories) are
