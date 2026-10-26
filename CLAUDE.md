@@ -102,8 +102,13 @@ per folder, run separately).
       footing as spending categories instead of a guaranteed 20% floor.
     - `budget_vs_actual` — budgeted vs. actual $ per category, with
       variance/%-used/status, for driving the progress bars. The three
-      non-card categories always get `Actual Amount == 0` since they never
-      appear on a card statement. Transactions categorized `"Money out"` or
+      non-card categories never appear on a card statement, so their actual
+      comes only from the optional user-entered `manual_actuals` argument
+      ({category: $}, 0 if missing). In `Budget/app.py` these are three `$`
+      inputs under "Manually tracked spending" at the top of the Budget vs.
+      Actual card (session-only, like everything else); the rows show a
+      "Manually entered" note and have no drill-down accordion item.
+      Transactions categorized `"Money out"` or
       `"Fees & Adjustments"` are excluded entirely — not shown as $0, just
       not counted anywhere in the Budget app.
     - `budget_summary` — total income/budgeted/unallocated, for the

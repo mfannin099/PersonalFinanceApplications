@@ -197,15 +197,20 @@ def _status(budgeted: float, actual: float) -> str:
     return "Under"
 
 
-def budget_vs_actual(allocations: pd.DataFrame, transactions: pd.DataFrame | None) -> pd.DataFrame:
+def budget_vs_actual(
+    allocations: pd.DataFrame,
+    transactions: pd.DataFrame | None,
+    manual_actuals: dict[str, float] | None = None,
+) -> pd.DataFrame:
     """Per-category budgeted $ vs. actual $, with variance, % used, and status.
 
     ``allocations`` needs ``Category``/``Budgeted Amount`` columns (any
     subset/order of ``BUDGET_CATEGORIES`` — missing categories default to
     $0 budgeted). ``transactions`` is a categorized statement (``Category``/
     ``Amount`` columns), or ``None``/empty if nothing has been uploaded yet.
-    Every row in ``NON_CARD_CATEGORIES`` (3 categories) always gets
-    ``Actual Amount == 0``, since those never appear on a card statement.
+    Rows in ``NON_CARD_CATEGORIES`` (3 categories) never appear on a card
+    statement, so their actual comes only from the user-entered
+    ``manual_actuals`` ({category: $}, default 0 for any not given).
     Transactions
     categorized "Money out" or "Fees & Adjustments" are excluded entirely —
     they don't appear as $0, they simply aren't counted anywhere.
@@ -220,7 +225,10 @@ def budget_vs_actual(allocations: pd.DataFrame, transactions: pd.DataFrame | Non
     rows = []
     for category in BUDGET_CATEGORIES:
         budgeted = float(budgeted_by_category.get(category, 0.0))
-        actual = 0.0 if category in NON_CARD_CATEGORIES else float(actual_by_category.get(category, 0.0))
+        if category in NON_CARD_CATEGORIES:
+            actual = float((manual_actuals or {}).get(category) or 0.0)
+        else:
+            actual = float(actual_by_category.get(category, 0.0))
         variance = budgeted - actual
         pct_used = None if budgeted == 0 else round(actual / budgeted * 100, 1)
         rows.append(
