@@ -92,6 +92,14 @@ def _clean_allocations(table_data: list[dict]) -> pd.DataFrame:
     return df
 
 
+def _plural(count: int, word: str, plural: str | None = None) -> str:
+    return f"{count} {word if count == 1 else (plural or word + 's')}"
+
+
+def _money(value: float, decimals: int = 2) -> str:
+    return f"{'-' if value < 0 else ''}${abs(value):,.{decimals}f}"
+
+
 def build_category_review(df: pd.DataFrame) -> tuple:
     """List every merchant with its resolved category and a dropdown to fix it.
 
@@ -109,6 +117,7 @@ def build_category_review(df: pd.DataFrame) -> tuple:
         return html.Div(), {}
 
     baseline = df.drop_duplicates(subset="Description", keep="last").set_index("Description")["Category"].to_dict()
+    stats = df.groupby("Description")["Amount"].agg(["count", "sum"])
     uncategorized_count = sum(1 for category in baseline.values() if category == "Uncategorized")
     merchants_sorted = sorted(baseline, key=lambda m: (baseline[m] != "Uncategorized", m.lower()))
 
@@ -116,9 +125,23 @@ def build_category_review(df: pd.DataFrame) -> tuple:
         dbc.Row(
             [
                 dbc.Col(
-                    html.Div(merchant, className="review-merchant"),
+                    [
+                        html.Div(
+                            [
+                                merchant,
+                                html.Span("Needs review", className="status-chip status-Near")
+                                if baseline[merchant] == "Uncategorized"
+                                else None,
+                            ],
+                            className="review-merchant",
+                        ),
+                        html.Div(
+                            f"{_plural(int(stats.at[merchant, 'count']), 'transaction')} · "
+                            f"{_money(stats.at[merchant, 'sum'])}",
+                            className="note",
+                        ),
+                    ],
                     md=6,
-                    className="d-flex align-items-center",
                 ),
                 dbc.Col(
                     dcc.Dropdown(
@@ -126,16 +149,20 @@ def build_category_review(df: pd.DataFrame) -> tuple:
                         options=[{"label": c, "value": c} for c in CATEGORIES],
                         value=baseline[merchant],
                         clearable=False,
+                        style={"width": "100%"},
                     ),
                     md=6,
+                    className="d-flex align-items-center",
                 ),
             ],
-            className="mb-2",
+            className="review-row",
         )
         for merchant in merchants_sorted
     ]
 
-    toggle_label = f"Review categories ({uncategorized_count} uncategorized of {len(merchants_sorted)} merchant(s))"
+    toggle_label = (
+        f"Review categories · {uncategorized_count} uncategorized of {_plural(len(merchants_sorted), 'merchant')}"
+    )
     component = html.Div(
         [
             dbc.Button(
@@ -151,12 +178,12 @@ def build_category_review(df: pd.DataFrame) -> tuple:
                             html.P(
                                 "Change a merchant's category below if it's wrong — the fix is "
                                 "remembered next time this merchant shows up.",
-                                className="text-muted small",
+                                className="section-sub",
                             ),
                             *rows,
                         ]
                     ),
-                    className="mt-2 bg-light",
+                    className="mt-2 review-card",
                 ),
                 id="category-review-collapse",
                 is_open=uncategorized_count > 0,
@@ -176,6 +203,13 @@ def empty_state(glyph: str, title: str, detail: str) -> html.Div:
 def build_progress_row(row: pd.Series):
     pct, actual, budgeted, status = row["Pct Used"], row["Actual Amount"], row["Budgeted Amount"], row["Status"]
     display_pct = min(pct, 100) if pct is not None else (100 if actual > 0 else 0)
+    remaining = budgeted - actual
+    if budgeted == 0:
+        remaining_label = html.Span("not budgeted", className="text-muted")
+    elif remaining >= 0:
+        remaining_label = html.Span(f"{_money(remaining, 0)} left", className="text-muted")
+    else:
+        remaining_label = html.Span(f"{_money(-remaining, 0)} over", className="text-danger fw-semibold")
     return html.Div(
         [
             html.Div(
@@ -187,18 +221,70 @@ def build_progress_row(row: pd.Series):
                         ],
                         className="name",
                     ),
-                    html.Span([html.B(f"${actual:,.0f}"), f" of ${budgeted:,.0f}"], className="amounts"),
+                    html.Span([html.B(_money(actual, 0)), f" of {_money(budgeted, 0)}"], className="amounts"),
                 ],
                 className="d-flex justify-content-between align-items-center",
             ),
             dbc.Progress(value=display_pct, color=STATUS_COLOR.get(status, "secondary")),
-            html.Div("Manually entered", className="note") if row["Category"] in NON_CARD_CATEGORIES else None,
+            html.Div(
+                [
+                    html.Span("Manually entered" if row["Category"] in NON_CARD_CATEGORIES else ""),
+                    remaining_label,
+                ],
+                className="note d-flex justify-content-between",
+            ),
         ],
         className="cat-row",
     )
 
 
+def build_bva_summary(result: pd.DataFrame) -> html.Div:
+    """Spent / Budgeted / Remaining for the categories shown, plus an over-budget count."""
+    budgeted, actual = result["Budgeted Amount"].sum(), result["Actual Amount"].sum()
+    remaining = budgeted - actual
+    over = int((result["Status"] == "Over").sum())
+    over_chip = (
+        html.Span([icon("exclamation-triangle-fill", "me-1"), f"{_plural(over, 'category', 'categories')} over budget"],
+                  className="status-chip status-Over ms-0")
+        if over
+        else html.Span([icon("check-circle-fill", "me-1"), "All categories within budget"],
+                       className="status-chip status-Under ms-0")
+    )
+
+    def stat(label, value, color=None):
+        return html.Div(
+            [html.Div(label, className="k"), html.Div(_money(value), className="v", style={"color": color})],
+            className="alloc-stat",
+        )
+
+    return html.Div(
+        [
+            html.Div(
+                [
+                    stat("Spent", actual),
+                    stat("Budgeted", budgeted),
+                    stat("Remaining", remaining, "#e03131" if remaining < 0 else "#1baf7a"),
+                    html.Div(over_chip, className="d-flex align-items-end pb-1"),
+                ],
+                className="alloc-stats",
+            ),
+            html.Div(
+                html.Div(
+                    style={
+                        "width": f"{min(100.0, actual / budgeted * 100) if budgeted else 0:.1f}%",
+                        "background": "#e03131" if remaining < 0 else "#3b5bdb",
+                    }
+                ),
+                className="alloc-meter mb-4",
+            ),
+        ]
+    )
+
+
 def build_budget_chart(result: pd.DataFrame):
+    # ``result`` arrives sorted largest-first to match the progress rows; Plotly
+    # draws the first horizontal category at the bottom, so reverse it here.
+    order = list(result["Category"])[::-1]
     fig = go.Figure()
     fig.add_bar(
         name="Budgeted",
@@ -219,10 +305,10 @@ def build_budget_chart(result: pd.DataFrame):
     fig.update_layout(
         barmode="group",
         bargap=0.35,
-        height=max(420, 34 * len(result)),
+        height=max(360, 44 * len(result)),
         margin={"l": 10, "r": 10, "t": 10, "b": 10},
         legend={"orientation": "h", "y": 1.04, "x": 1, "xanchor": "right"},
-        yaxis={"categoryorder": "total ascending", "automargin": True},
+        yaxis={"categoryorder": "array", "categoryarray": order, "automargin": True},
         xaxis={"tickprefix": "$", "tickformat": ",.0f", "gridcolor": "#eef0f7", "zeroline": False},
         font={"family": "Inter, sans-serif", "color": "#1b2437", "size": 12},
         plot_bgcolor="rgba(0,0,0,0)",
@@ -290,9 +376,9 @@ def build_needs_wants_section(transactions_df: pd.DataFrame | None):
     return html.Div(
         [
             html.Hr(className="my-4"),
-            html.H6("Actual Spend: Needs vs. Wants vs. Other", className="text-center fw-semibold"),
+            html.Div("Card spending: Needs vs. Wants vs. Other", className="subsection-title text-center"),
             dcc.Graph(figure=fig, config={"displayModeBar": False}),
-            html.Div(legend_chips, className="d-flex justify-content-center mb-2"),
+            html.Div(legend_chips, className="d-flex justify-content-center flex-wrap mb-2"),
         ],
         className="mt-2",
     )
@@ -305,26 +391,45 @@ def build_drilldown_accordion(result: pd.DataFrame, transactions_df: pd.DataFram
     # ("Shopping" -> "Misc Shopping") so filtering against `result`'s
     # Budget-labeled categories below actually matches.
     classified = relabel_for_budget(with_classification(transactions_df))
+    classified["Transaction Date"] = pd.to_datetime(classified["Transaction Date"])
+    classified["Classification"] = classified["Classification"].map(NEEDS_WANTS_LABELS)
     items = []
     for category in result.loc[result["Actual Amount"] > 0, "Category"]:
         if category in NON_CARD_CATEGORIES:
             continue  # manually entered, no underlying transactions to drill into
         subset = classified.loc[
             classified["Category"] == category, ["Transaction Date", "Description", "Amount", "Classification"]
-        ]
+        ].sort_values("Transaction Date", ascending=False)
+        total = subset["Amount"].sum()
+        subset = subset.assign(**{"Transaction Date": subset["Transaction Date"].dt.strftime("%b %d, %Y")})
         table = dash_table.DataTable(
-            data=subset.to_dict("records"),
+            data=subset.rename(columns={"Transaction Date": "Date", "Classification": "Type"}).to_dict("records"),
             columns=[
-                {"name": c, "id": c, **({"type": "numeric", "format": MONEY} if c == "Amount" else {})}
-                for c in subset.columns
+                {"name": "Date", "id": "Date"},
+                {"name": "Merchant", "id": "Description"},
+                {"name": "Amount", "id": "Amount", "type": "numeric", "format": MONEY},
+                {"name": "Type", "id": "Type"},
             ],
             page_size=10,
-            **TABLE_STYLE,
+            **{
+                **TABLE_STYLE,
+                "style_cell_conditional": [{"if": {"column_id": "Amount"}, "textAlign": "right"}],
+            },
         )
-        items.append(dbc.AccordionItem(table, title=f"{category} — {len(subset)} transaction(s)"))
+        title = html.Div(
+            [html.Span(category), html.Span(f"{_plural(len(subset), 'transaction')} · {_money(total)}",
+                                            className="section-sub ms-auto me-3")],
+            className="d-flex w-100 align-items-center",
+        )
+        items.append(dbc.AccordionItem(table, title=title))
     if not items:
         return html.Div()
-    return dbc.Accordion(items, start_collapsed=True, className="mt-4", flush=False)
+    return html.Div(
+        [
+            html.Div("Transactions by category", className="subsection-title mt-4 mb-2"),
+            dbc.Accordion(items, start_collapsed=True),
+        ]
+    )
 
 
 def card_header(step: int, glyph: str, title: str, subtitle: str = "", extra=None) -> dbc.CardHeader:
@@ -334,7 +439,8 @@ def card_header(step: int, glyph: str, title: str, subtitle: str = "", extra=Non
             html.Div(
                 [html.Div([icon(glyph, "me-2 text-muted"), title]), html.Div(subtitle, className="section-sub")]
                 if subtitle
-                else [icon(glyph, "me-2 text-muted"), title]
+                else [icon(glyph, "me-2 text-muted"), title],
+                className="header-title",
             ),
             html.Div(extra, className="header-extra") if extra is not None else None,
         ]
@@ -369,7 +475,9 @@ app.layout = html.Div(
                 dcc.Store(id="category-baseline-store"),
                 dbc.Card(
                     [
-                        card_header(1, "cash-coin", "Income & Method", "Tell us what you earn and how you like to budget"),
+                        card_header(
+                            1, "cash-coin", "Income & Method", "Tell us what you earn and how you like to budget"
+                        ),
                         dbc.CardBody(
                             [
                                 dbc.Row(
@@ -408,7 +516,8 @@ app.layout = html.Div(
                                                     ),
                                                 ),
                                                 html.Div(
-                                                    "Choose Gross to enter pre-tax pay — you'll set an estimated tax rate.",
+                                                    "Choose Gross to enter pre-tax pay — you'll set an "
+                                                    "estimated tax rate.",
                                                     className="preset-hint",
                                                 ),
                                             ],
@@ -439,12 +548,19 @@ app.layout = html.Div(
                                                     dbc.InputGroup(
                                                         [
                                                             dbc.Input(
-                                                                id="tax-rate-input", type="number", min=0, max=100, value=22
+                                                                id="tax-rate-input",
+                                                                type="number",
+                                                                min=0,
+                                                                max=100,
+                                                                value=22,
                                                             ),
                                                             dbc.InputGroupText("%"),
                                                         ]
                                                     ),
-                                                    html.Div("Effective rate: federal + state + FICA.", className="preset-hint"),
+                                                    html.Div(
+                                                        "Effective rate: federal + state + FICA.",
+                                                        className="preset-hint",
+                                                    ),
                                                 ],
                                                 md=4,
                                             ),
@@ -452,7 +568,10 @@ app.layout = html.Div(
                                                 [
                                                     dbc.Label("Net Monthly Income"),
                                                     html.Div(id="net-income-display", className="fs-5 fw-bold pt-1"),
-                                                    html.Div("The budget is built on this take-home amount.", className="preset-hint"),
+                                                    html.Div(
+                                                        "The budget is built on this take-home amount.",
+                                                        className="preset-hint",
+                                                    ),
                                                 ],
                                                 md=4,
                                             ),
@@ -466,11 +585,15 @@ app.layout = html.Div(
                                     dbc.Row(
                                         dbc.Col(
                                             [
-                                                dbc.Label("Savings Rate (%)"),
+                                                dbc.Label("Savings Rate"),
                                                 dbc.InputGroup(
                                                     [
                                                         dbc.Input(
-                                                            id="savings-rate-input", type="number", min=0, max=100, value=20
+                                                            id="savings-rate-input",
+                                                            type="number",
+                                                            min=0,
+                                                            max=100,
+                                                            value=20,
                                                         ),
                                                         dbc.InputGroupText("%"),
                                                     ]
@@ -483,11 +606,19 @@ app.layout = html.Div(
                                     id="savings-rate-collapse",
                                     is_open=False,
                                 ),
-                                dbc.Button(
-                                    [icon("magic", "me-2"), "Generate Suggested Budget"],
-                                    id="generate-budget-btn",
-                                    color="primary",
-                                    className="mt-3",
+                                html.Div(
+                                    [
+                                        dbc.Button(
+                                            [icon("magic", "me-2"), "Generate Suggested Budget"],
+                                            id="generate-budget-btn",
+                                            color="primary",
+                                        ),
+                                        html.Span(
+                                            "Replaces the amounts in step 2 — you can fine-tune them after.",
+                                            className="section-sub",
+                                        ),
+                                    ],
+                                    className="d-flex align-items-center flex-wrap gap-3 mt-3",
                                 ),
                             ]
                         ),
@@ -502,19 +633,30 @@ app.layout = html.Div(
                             "Allocations",
                             "Edit any amount — everything below updates instantly",
                             extra=html.Div(
-                [
-                    dbc.Badge("Unallocated: $0.00", id="unallocated-badge", color="success", pill=True),
-                    dbc.ButtonGroup(
-                        [
-                            dbc.Button([icon("filetype-csv", "me-1"), "CSV"], id="save-csv-btn", outline=True, size="sm", color="primary"),
-                            dbc.Button([icon("filetype-pdf", "me-1"), "PDF"], id="save-pdf-btn", outline=True, size="sm", color="primary"),
-                        ],
-                        className="ms-3",
-                    ),
-                    dcc.Download(id="download-budget"),
-                ],
-                className="d-flex align-items-center",
-            ),
+                                [
+                                    html.Span("Export", className="section-sub me-2"),
+                                    dbc.ButtonGroup(
+                                        [
+                                            dbc.Button(
+                                                [icon("filetype-csv", "me-1"), "CSV"],
+                                                id="save-csv-btn",
+                                                outline=True,
+                                                size="sm",
+                                                color="primary",
+                                            ),
+                                            dbc.Button(
+                                                [icon("filetype-pdf", "me-1"), "PDF"],
+                                                id="save-pdf-btn",
+                                                outline=True,
+                                                size="sm",
+                                                color="primary",
+                                            ),
+                                        ]
+                                    ),
+                                    dcc.Download(id="download-budget"),
+                                ],
+                                className="d-flex align-items-center",
+                            ),
                         ),
                         dbc.CardBody(
                             [
@@ -569,7 +711,9 @@ app.layout = html.Div(
                                     ),
                                     className="dropzone",
                                 ),
-                                dcc.Loading(html.Div(id="upload-alert", className="mt-3"), type="dot", color="#3b5bdb"),
+                                dcc.Loading(
+                                    html.Div(id="upload-alert", className="mt-3"), type="dot", color="#3b5bdb"
+                                ),
                                 html.Div(id="category-review"),
                             ]
                         ),
@@ -578,7 +722,9 @@ app.layout = html.Div(
                 ),
                 dbc.Card(
                     [
-                        card_header(4, "bar-chart-line", "Budget vs. Actual", "Your plan against the last 30 days of spending"),
+                        card_header(
+                            4, "bar-chart-line", "Budget vs. Actual", "Your plan against the last 30 days of spending"
+                        ),
                         dbc.CardBody(
                             [
                                 html.Div(
@@ -589,7 +735,7 @@ app.layout = html.Div(
                                         ),
                                         html.Div(
                                             "These never appear on a card statement — enter what you actually "
-                                            "paid this month.",
+                                            "paid this month, then press Enter or click away to apply.",
                                             className="section-sub mb-3",
                                         ),
                                         dbc.Row(
@@ -617,13 +763,21 @@ app.layout = html.Div(
                                             className="g-3",
                                         ),
                                     ],
-                                    className="manual-actuals",
+                                    className="manual-actuals mb-4 pb-4 border-bottom",
                                 ),
                                 dcc.Loading(html.Div(id="budget-vs-actual-section"), type="dot", color="#3b5bdb"),
                             ]
                         ),
                     ],
                     className="mb-4",
+                ),
+                html.Footer(
+                    [
+                        icon("shield-lock", "me-2"),
+                        "Session-only: income, allocations and manual entries reset when the app restarts. "
+                        "Only merchant category fixes are remembered.",
+                    ],
+                    className="app-footer",
                 ),
             ],
             className="app-shell",
@@ -713,40 +867,44 @@ def generate_budget(n_clicks, income, preset, savings_rate_pct, income_type, tax
 
 
 @app.callback(
-    Output("unallocated-badge", "children"),
-    Output("unallocated-badge", "color"),
     Output("alloc-summary", "children"),
     Input("allocations-table", "data"),
     Input("income-amount", "value"),
     Input("income-type", "value"),
     Input("tax-rate-input", "value"),
 )
-def update_unallocated_badge(table_data, income, income_type, tax_rate):
+def update_allocation_summary(table_data, income, income_type, tax_rate):
     income = net_income(income or 0, income_type, tax_rate)
     summary = budget_summary(income, _clean_allocations(table_data))
     unallocated = summary["unallocated"]
-    color = "success" if abs(unallocated) < 1 else ("danger" if unallocated < 0 else "warning")
-    meter_color = {"success": "#1baf7a", "danger": "#e03131", "warning": "#f08c00"}[color]
+    if abs(unallocated) < 1:
+        color, status = "#1baf7a", html.Span([icon("check-circle-fill", "me-1"), "Every dollar assigned"],
+                                             className="status-chip status-Under ms-0")
+    elif unallocated < 0:
+        color, status = "#e03131", html.Span([icon("exclamation-triangle-fill", "me-1"), "Over-allocated"],
+                                             className="status-chip status-Over ms-0")
+    else:
+        color, status = "#f08c00", html.Span([icon("hourglass-split", "me-1"), "Left to assign"],
+                                             className="status-chip status-Near ms-0")
     used_pct = min(100.0, summary["total_budgeted"] / income * 100) if income else 0
 
     def stat(label, value, extra_style=None):
         return html.Div(
-            [html.Div(label, className="k"), html.Div(f"{'-' if value < 0 else ''}${abs(value):,.2f}", className="v", style=extra_style)],
+            [html.Div(label, className="k"), html.Div(_money(value), className="v", style=extra_style)],
             className="alloc-stat",
         )
 
     stats = html.Div(
         [
-            stat("Income", income),
+            stat("Take-home income", income),
             stat("Budgeted", summary["total_budgeted"]),
-            stat("Unallocated", unallocated, {"color": meter_color}),
+            stat("Unallocated", unallocated, {"color": color}),
+            html.Div(status, className="d-flex align-items-end pb-1") if income else None,
         ],
         className="alloc-stats",
     )
-    meter = html.Div(
-        html.Div(style={"width": f"{used_pct:.1f}%", "background": meter_color}), className="alloc-meter mb-4"
-    )
-    return f"Unallocated: {'-' if unallocated < 0 else ''}${abs(unallocated):,.2f}", color, [stats, meter]
+    meter = html.Div(html.Div(style={"width": f"{used_pct:.1f}%", "background": color}), className="alloc-meter mb-4")
+    return [stats, meter]
 
 
 @app.callback(
@@ -756,24 +914,32 @@ def update_unallocated_badge(table_data, income, income_type, tax_rate):
     Output("category-review", "children"),
     Output("category-baseline-store", "data"),
     Input("upload-statement", "contents"),
+    State("upload-statement", "filename"),
     prevent_initial_call=True,
 )
-def handle_upload(contents):
+def handle_upload(contents, filename):
     if contents is None:
         raise PreventUpdate
 
-    _, content_string = contents.split(",", 1)
-    raw_df = pd.read_csv(io.StringIO(base64.b64decode(content_string).decode("utf-8")))
+    def error(message):
+        alert = dbc.Alert([icon("x-circle-fill", "me-2"), message], color="danger", className="mb-0")
+        return None, None, alert, html.Div(), None
+
+    try:
+        _, content_string = contents.split(",", 1)
+        raw_df = pd.read_csv(io.StringIO(base64.b64decode(content_string).decode("utf-8")))
+    except (ValueError, UnicodeDecodeError, pd.errors.ParserError):
+        return error(f"Couldn't read {filename or 'that file'} — please upload a CSV exported from your card.")
     try:
         cleaned_df = clean_statement(raw_df)
     except ValueError as exc:
-        return None, None, dbc.Alert(str(exc), color="danger"), html.Div(), None
+        return error(str(exc))
 
     total_count = len(cleaned_df)
     cleaned_df = filter_to_recent_window(cleaned_df)
     categorized_df = categorize_transactions(cleaned_df, overrides=load_overrides())
 
-    message = f"Loaded {len(cleaned_df)} transactions from the last {RECENT_WINDOW_DAYS} days"
+    message = f"{filename}: loaded {_plural(len(cleaned_df), 'transaction')} from the last {RECENT_WINDOW_DAYS} days"
     message += f" (filtered from {total_count} total)." if len(cleaned_df) != total_count else "."
     alert = dbc.Alert([icon("check-circle-fill", "me-2"), message], color="success", className="mb-0")
     review, baseline = build_category_review(categorized_df)
@@ -830,13 +996,28 @@ def update_budget_vs_actual(table_data, transaction_records, manual_values):
     allocations_df = _clean_allocations(table_data)
     transactions_df = pd.DataFrame.from_records(transaction_records) if transaction_records else None
     result = budget_vs_actual(allocations_df, transactions_df, _manual_actuals(manual_values))
+    # Hide categories with nothing budgeted and nothing spent — a $0-of-$0 row
+    # says nothing — and sort largest-first so the rows and chart line up.
+    result = result[(result["Budgeted Amount"] > 0) | (result["Actual Amount"] > 0)]
+    result = result.assign(_size=result[["Budgeted Amount", "Actual Amount"]].max(axis=1))
+    result = result.sort_values("_size", ascending=False).drop(columns="_size")
+
+    if result.empty:
+        return empty_state(
+            "clipboard-data",
+            "Nothing to compare yet",
+            "Generate a budget in step 1 and upload a statement in step 3 to see how you're tracking.",
+        )
 
     no_data_hint = (
         []
         if transactions_df is not None
         else [
             dbc.Alert(
-                [icon("info-circle", "me-2"), "Upload a statement in step 3 to see your card spending against this plan."],
+                [
+                    icon("info-circle", "me-2"),
+                    "Upload a statement in step 3 to see your card spending against this plan.",
+                ],
                 color="light",
                 className="border",
             )
@@ -844,11 +1025,13 @@ def update_budget_vs_actual(table_data, transaction_records, manual_values):
     )
     return [
         *no_data_hint,
+        build_bva_summary(result),
         dbc.Row(
             [
-                dbc.Col([build_progress_row(row) for _, row in result.iterrows()], md=6),
-                dbc.Col(build_budget_chart(result), md=6),
-            ]
+                dbc.Col([build_progress_row(row) for _, row in result.iterrows()], lg=6),
+                dbc.Col(build_budget_chart(result), lg=6),
+            ],
+            className="g-4",
         ),
         build_needs_wants_section(transactions_df),
         build_drilldown_accordion(result, transactions_df),

@@ -118,7 +118,26 @@ body {
 .review-merchant { font-weight: 500; font-size: 0.92rem; }
 .btn-link { text-decoration: none; font-weight: 600; }
 
+.subsection-title { font-weight: 600; font-size: 0.95rem; }
+.review-card { background: #fafbff; border-style: dashed !important; box-shadow: none !important; }
+.review-row { padding: 0.55rem 0; border-bottom: 1px solid #eef0f7; }
+.review-row:last-child { border-bottom: 0; }
+.review-row .note { font-size: 0.76rem; color: var(--muted); margin-bottom: 0.3rem; }
+.review-merchant { font-weight: 600; font-size: 0.9rem; }
+.review-merchant .status-chip { vertical-align: middle; }
+.cat-row .note { min-height: 1em; }
+.alloc-stats .status-chip { font-size: 0.75rem; padding: 0.3rem 0.65rem; }
+.card-header .header-extra { flex-shrink: 0; }
+.card-header .header-title { flex: 1 1 0; min-width: 0; }
+.card-header { flex-wrap: wrap; }
+.app-footer {
+  text-align: center; color: var(--muted); font-size: 0.8rem; padding: 0.5rem 0 1.5rem;
+}
+.accordion-button .section-sub { font-weight: 500; }
+
 @media (max-width: 768px) {
+  .card-header .header-extra { margin-left: 0; width: 100%; }
+
   .app-shell { padding: 0 0.75rem; }
   .card-body { padding: 1rem !important; }
 }
