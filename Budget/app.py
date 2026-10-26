@@ -8,12 +8,11 @@ instead, breaking those imports.
 """
 
 import base64
-import io
 
 import dash_bootstrap_components as dbc
 import pandas as pd
 import plotly.graph_objects as go
-from dash import ALL, Dash, Input, Output, State, callback_context, dash_table, dcc, html
+from dash import ALL, Dash, Input, Output, State, callback_context, dash_table, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 
 from Budget.budgeting import (
@@ -29,6 +28,7 @@ from Budget.budgeting import (
     suggested_allocations,
 )
 from Budget.export import budget_to_csv, budget_to_pdf
+from Budget.statement import MAX_UPLOAD_BYTES, read_statement_csv
 from CreditCard.analytics import needs_vs_wants, with_classification
 from CreditCard.categorize import CATEGORIES, categorize_transactions, load_overrides, save_override
 from CreditCard.cleaning import clean_statement
@@ -67,6 +67,7 @@ TABLE_STYLE = {
     ],
 }
 MONEY = {"specifier": "$,.2f"}
+MAX_UPLOAD_MB = MAX_UPLOAD_BYTES // (1024 * 1024)
 
 app = Dash(
     __name__,
@@ -81,9 +82,22 @@ def icon(name: str, className: str = "") -> html.I:
     return html.I(className=f"bi bi-{name} {className}".strip())
 
 
+# Number inputs deliberately have no HTML min/max: Dash reports an out-of-range
+# value as None, which would hide it from these checks instead of flagging it.
+def _is_negative(value) -> bool:
+    return value is not None and value < 0
+
+
+def _is_valid_pct(value) -> bool:
+    return value is None or 0 <= value <= 100
+
+
 def _manual_actuals(values: list | None) -> dict[str, float]:
-    """Map the manual-actual inputs (laid out in ``NON_CARD_CATEGORIES`` order) to {category: $}."""
-    return {category: float(value or 0) for category, value in zip(NON_CARD_CATEGORIES, values or [])}
+    """Map the manual-actual inputs (laid out in ``NON_CARD_CATEGORIES`` order) to {category: $}.
+
+    Negative entries are flagged invalid in the UI and counted as $0 here.
+    """
+    return {category: max(0.0, float(value or 0)) for category, value in zip(NON_CARD_CATEGORIES, values or [])}
 
 
 def _clean_allocations(table_data: list[dict]) -> pd.DataFrame:
@@ -489,10 +503,11 @@ app.layout = html.Div(
                                                     [
                                                         dbc.InputGroupText("$"),
                                                         dbc.Input(
-                                                            id="income-amount", type="number", min=0, placeholder="5000"
+                                                            id="income-amount", type="number", placeholder="5000"
                                                         ),
                                                         dbc.FormFeedback(
                                                             "Enter your monthly income to generate a budget.",
+                                                            id="income-feedback",
                                                             type="invalid",
                                                         ),
                                                     ]
@@ -550,11 +565,12 @@ app.layout = html.Div(
                                                             dbc.Input(
                                                                 id="tax-rate-input",
                                                                 type="number",
-                                                                min=0,
-                                                                max=100,
                                                                 value=22,
                                                             ),
                                                             dbc.InputGroupText("%"),
+                                                            dbc.FormFeedback(
+                                                                "Enter a rate from 0 to 100.", type="invalid"
+                                                            ),
                                                         ]
                                                     ),
                                                     html.Div(
@@ -591,11 +607,10 @@ app.layout = html.Div(
                                                         dbc.Input(
                                                             id="savings-rate-input",
                                                             type="number",
-                                                            min=0,
-                                                            max=100,
                                                             value=20,
                                                         ),
                                                         dbc.InputGroupText("%"),
+                                                        dbc.FormFeedback("Enter a rate from 0 to 100.", type="invalid"),
                                                     ]
                                                 ),
                                             ],
@@ -619,6 +634,26 @@ app.layout = html.Div(
                                         ),
                                     ],
                                     className="d-flex align-items-center flex-wrap gap-3 mt-3",
+                                ),
+                                dbc.Modal(
+                                    [
+                                        dbc.ModalHeader(dbc.ModalTitle("Replace your allocations?")),
+                                        dbc.ModalBody(
+                                            "Generating a suggested budget overwrites every amount in step 2, "
+                                            "including any edits you've made. This can't be undone."
+                                        ),
+                                        dbc.ModalFooter(
+                                            [
+                                                dbc.Button("Keep my edits", id="generate-cancel-btn", color="light"),
+                                                dbc.Button(
+                                                    "Replace amounts", id="generate-confirm-btn", color="danger"
+                                                ),
+                                            ]
+                                        ),
+                                    ],
+                                    id="generate-confirm-modal",
+                                    is_open=False,
+                                    centered=True,
                                 ),
                             ]
                         ),
@@ -672,6 +707,9 @@ app.layout = html.Div(
                                             "editable": True,
                                             "type": "numeric",
                                             "format": MONEY,
+                                            # Typing text into an amount cell is rejected outright
+                                            # instead of silently becoming $0.
+                                            "on_change": {"action": "validate", "failure": "reject"},
                                         },
                                     ],
                                     editable=True,
@@ -681,6 +719,18 @@ app.layout = html.Div(
                                         "style_cell_conditional": [
                                             {"if": {"column_id": "Budgeted Amount"}, "textAlign": "right"},
                                             {"if": {"column_id": "Category"}, "fontWeight": "500"},
+                                        ],
+                                        "style_data_conditional": [
+                                            *TABLE_STYLE["style_data_conditional"],
+                                            {
+                                                "if": {
+                                                    "filter_query": "{Budgeted Amount} < 0",
+                                                    "column_id": "Budgeted Amount",
+                                                },
+                                                "backgroundColor": "#fde4e4",
+                                                "color": "#b42323",
+                                                "fontWeight": "600",
+                                            },
                                         ],
                                     },
                                 ),
@@ -706,9 +756,14 @@ app.layout = html.Div(
                                         [
                                             icon("cloud-arrow-up"),
                                             html.Div("Drag & drop a statement CSV", className="title"),
-                                            html.Div("or click to browse", className="small"),
+                                            html.Div(
+                                                f"or click to browse · CSV up to {MAX_UPLOAD_MB} MB",
+                                                className="small",
+                                            ),
                                         ]
                                     ),
+                                    accept=".csv,text/csv",
+                                    max_size=MAX_UPLOAD_BYTES,
                                     className="dropzone",
                                 ),
                                 dcc.Loading(
@@ -749,10 +804,10 @@ app.layout = html.Div(
                                                                 dbc.Input(
                                                                     id={"type": "manual-actual", "index": category},
                                                                     type="number",
-                                                                    min=0,
                                                                     placeholder="0",
                                                                     debounce=True,
                                                                 ),
+                                                                dbc.FormFeedback("Can't be negative.", type="invalid"),
                                                             ]
                                                         ),
                                                     ],
@@ -840,30 +895,88 @@ def update_preset_description(preset):
 
 @app.callback(
     Output("income-amount", "invalid"),
+    Output("income-feedback", "children"),
     Input("generate-budget-btn", "n_clicks"),
     Input("income-amount", "value"),
 )
-def flag_missing_income(n_clicks, income):
-    return bool(n_clicks) and not income
+def flag_income(n_clicks, income):
+    if _is_negative(income):
+        return True, "Income can't be negative."
+    return bool(n_clicks) and not income, "Enter your monthly income to generate a budget."
 
 
 @app.callback(
-    Output("allocations-table", "data"),
-    Input("generate-budget-btn", "n_clicks"),
+    Output("tax-rate-input", "invalid"),
+    Output("savings-rate-input", "invalid"),
+    Input("tax-rate-input", "value"),
+    Input("savings-rate-input", "value"),
+)
+def flag_rates(tax_rate, savings_rate):
+    return not _is_valid_pct(tax_rate), not _is_valid_pct(savings_rate)
+
+
+@app.callback(
+    Output({"type": "manual-actual", "index": ALL}, "invalid"),
+    Input({"type": "manual-actual", "index": ALL}, "value"),
+)
+def flag_manual_actuals(values):
+    return [_is_negative(v) for v in values]
+
+
+_GENERATE_STATES = [
     State("income-amount", "value"),
     State("preset-dropdown", "value"),
     State("savings-rate-input", "value"),
     State("income-type", "value"),
     State("tax-rate-input", "value"),
+]
+
+
+def _generate_records(income, preset, savings_rate_pct, income_type, tax_rate) -> list[dict] | None:
+    """Suggested allocations as table records, or ``None`` if the inputs aren't valid yet."""
+    if not income or income < 0 or not _is_valid_pct(tax_rate) or not _is_valid_pct(savings_rate_pct):
+        return None
+    income = net_income(income, income_type, tax_rate)
+    savings_rate = (20 if savings_rate_pct is None else savings_rate_pct) / 100
+    return suggested_allocations(preset, income, savings_rate=savings_rate).to_dict("records")
+
+
+@app.callback(
+    Output("allocations-table", "data"),
+    Output("generate-confirm-modal", "is_open"),
+    Input("generate-budget-btn", "n_clicks"),
+    *_GENERATE_STATES,
+    State("allocations-table", "data"),
     prevent_initial_call=True,
 )
-def generate_budget(n_clicks, income, preset, savings_rate_pct, income_type, tax_rate):
-    if not income:
+def generate_budget(n_clicks, income, preset, savings_rate_pct, income_type, tax_rate, table_data):
+    records = _generate_records(income, preset, savings_rate_pct, income_type, tax_rate)
+    if records is None:
         raise PreventUpdate
-    income = net_income(income, income_type, tax_rate)
-    savings_rate = (savings_rate_pct or 20) / 100
-    df = suggested_allocations(preset, income, savings_rate=savings_rate)
-    return df.to_dict("records")
+    if _clean_allocations(table_data)["Budgeted Amount"].abs().sum() > 0:
+        return no_update, True  # existing amounts — confirm before overwriting them
+    return records, False
+
+
+@app.callback(
+    Output("allocations-table", "data", allow_duplicate=True),
+    Output("generate-confirm-modal", "is_open", allow_duplicate=True),
+    Input("generate-confirm-btn", "n_clicks"),
+    *_GENERATE_STATES,
+    prevent_initial_call=True,
+)
+def confirm_generate(n_clicks, income, preset, savings_rate_pct, income_type, tax_rate):
+    records = _generate_records(income, preset, savings_rate_pct, income_type, tax_rate)
+    return (records if records is not None else no_update), False
+
+
+@app.callback(
+    Output("generate-confirm-modal", "is_open", allow_duplicate=True),
+    Input("generate-cancel-btn", "n_clicks"),
+    prevent_initial_call=True,
+)
+def cancel_generate(n_clicks):
+    return False
 
 
 @app.callback(
@@ -904,7 +1017,18 @@ def update_allocation_summary(table_data, income, income_type, tax_rate):
         className="alloc-stats",
     )
     meter = html.Div(html.Div(style={"width": f"{used_pct:.1f}%", "background": color}), className="alloc-meter mb-4")
-    return [stats, meter]
+    allocations = _clean_allocations(table_data)
+    negative = allocations.loc[allocations["Budgeted Amount"] < 0, "Category"].tolist()
+    warning = (
+        dbc.Alert(
+            [icon("exclamation-triangle-fill", "me-2"), f"Negative amounts in: {', '.join(negative)}."],
+            color="danger",
+            className="py-2",
+        )
+        if negative
+        else None
+    )
+    return [stats, meter, warning]
 
 
 @app.callback(
@@ -927,9 +1051,9 @@ def handle_upload(contents, filename):
 
     try:
         _, content_string = contents.split(",", 1)
-        raw_df = pd.read_csv(io.StringIO(base64.b64decode(content_string).decode("utf-8")))
-    except (ValueError, UnicodeDecodeError, pd.errors.ParserError):
-        return error(f"Couldn't read {filename or 'that file'} — please upload a CSV exported from your card.")
+        raw_df = read_statement_csv(base64.b64decode(content_string))
+    except ValueError as exc:  # includes binascii.Error from a malformed payload
+        return error(f"Couldn't read {filename or 'that file'}: {exc} Please upload a CSV exported from your card.")
     try:
         cleaned_df = clean_statement(raw_df)
     except ValueError as exc:

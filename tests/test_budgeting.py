@@ -251,3 +251,10 @@ def test_manual_actuals_ignored_for_card_categories():
     allocations = pd.DataFrame({"Category": ["Groceries"], "Budgeted Amount": [400.0]})
     result = budget_vs_actual(allocations, None, {"Groceries": 999.0})
     assert result.loc[result["Category"] == "Groceries", "Actual Amount"].iloc[0] == 0.0
+
+
+@pytest.mark.parametrize("method", ["50/30/20", "Zero-Based", "Pay Yourself First"])
+@pytest.mark.parametrize("income", [5000.0, 4321.17, 1234.56, 0.01])
+def test_presets_sum_to_income_to_the_cent(method, income):
+    df = suggested_allocations(method, income)
+    assert round(df["Budgeted Amount"].sum(), 2) == income

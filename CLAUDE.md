@@ -96,7 +96,9 @@ per folder, run separately).
       `CATEGORY_WEIGHTS` — not an even split — so e.g. `Rent/Mortgage` is
       suggested a realistic multiple of `Gas` rather than an identical
       share; the weights are rough typical-household proportions, not a
-      precision budgeting model. `Zero-Based` differs from `50/30/20` by
+      precision budgeting model. Each split rounds to cents and hands any
+      leftover cent to its heaviest-weighted category, so every preset sums
+      to income exactly (no stray "-$0.01 unallocated"). `Zero-Based` differs from `50/30/20` by
       skipping the Needs/Wants/Savings tiering and weighting every category
       against every other directly — `Savings` competes on the same
       footing as spending categories instead of a guaranteed 20% floor.
@@ -121,6 +123,23 @@ per folder, run separately).
       merchant" window in `CreditCard/app.py`. Applied once, right after
       `clean_statement`, so both `cleaned-transactions-store` and
       `transactions-store` only ever hold the filtered window.
+  - `statement.py` — pure `read_statement_csv(bytes)` used by the upload
+    callback (unit-tested in `tests/test_statement.py`): rejects files over
+    `MAX_UPLOAD_BYTES` (5 MB, also set as `dcc.Upload(max_size=...)`),
+    decodes UTF-8 with or without a BOM and falls back to cp1252/latin-1,
+    and strips whitespace from header names — so real-world card exports
+    don't fail `clean_statement`'s required-column check. Lives in
+    `Budget/`, not `CreditCard/cleaning.py`, to leave the CreditCard app
+    untouched.
+  - Input validation in `app.py`: number inputs intentionally have no HTML
+    `min`/`max` (Dash reports an out-of-range value as `None`, hiding it from
+    validation). Instead negative income, tax/savings rates outside 0-100,
+    and negative manual actuals are flagged `invalid` with a `FormFeedback`
+    message (negative manual actuals count as $0). Allocation cells reject
+    non-numeric input (`on_change` validate/reject), and negative amounts
+    are highlighted red with a warning listing them. Generate Suggested
+    Budget asks for confirmation in a modal when step 2 already has
+    non-zero amounts, since it overwrites them.
   - `export.py` — pure, Dash-free `budget_to_csv`/`budget_to_pdf` (the PDF
     uses `reportlab`; unit-tested in `tests/test_export.py`). Wired to the
     CSV/PDF buttons in the Allocations card header via `dcc.Download`. Export
@@ -150,7 +169,8 @@ per folder, run separately).
     -only, not persisted** (see Notes below).
 - `Stocks/app.py` — placeholder app, not yet implemented.
 - `tests/` — pytest for `CreditCard/cleaning.py`, `CreditCard/categorize.py`,
-  `CreditCard/analytics.py`, and `Budget/budgeting.py` (imported there via
+  `CreditCard/analytics.py`, `Budget/budgeting.py`, `Budget/export.py`, and
+  `Budget/statement.py` (imported there via
   the `CreditCard.`/`Budget.` package paths, since pytest runs from the
   project root — only each Streamlit app's own `app.py` uses local imports;
   `Budget/app.py` is package-qualified even outside tests, see above).
