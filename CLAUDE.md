@@ -1,7 +1,7 @@
 # PersonalFinanceApplications
 
 Personal finance tools. One `uv` project/venv at this root covers all
-sub-apps, but each folder is an independent app (Streamlit or Dash) with its
+sub-apps, but each folder is an independent app (Streamlit, Dash or Shiny) with its
 own `app.py` entry point — there is no shared nav shell by design (one app
 per folder, run separately).
 
@@ -167,10 +167,39 @@ per folder, run separately).
     merchant categorization — that's categorization data, not budget data.
     The budget itself (income, chosen preset, allocations) is **session
     -only, not persisted** (see Notes below).
-- `Stocks/app.py` — placeholder app, not yet implemented.
+- `Stocks/` — "Stock Studio", a **Shiny for Python** app (replaced an
+  earlier Streamlit "coming soon" placeholder). Multi-ticker (up to 5)
+  price analysis from Yahoo Finance via `yfinance`.
+  - `app.py` — entry point, run with `uv run shiny run Stocks/app.py`.
+    Shiny puts `Stocks/` on `sys.path`, so it imports `forecast`/
+    `fundamentals`/`market_data` locally (like the Streamlit app); tests use
+    `Stocks.xxx`. Charts are Plotly via `shinywidgets` (`render_widget`).
+    Prices are fetched only on "Run analysis" (`@reactive.event(input.run,
+    ignore_none=False)`, so it also runs once on load); MA type/windows and
+    forecast horizon recompute live on the loaded data. Overview tab: growth
+    of $100 chart + fundamentals table. Forecast tab: per-ticker value
+    boxes, price + short/long MA chart with crossover markers and the trend
+    forecast/band, and a recent-crossovers table. Styling in
+    `Stocks/style.css` mirrors Budget Studio's look.
+  - `forecast.py` — pure: `moving_average` (SMA/EMA), `crossovers`
+    (Bullish = short MA crosses above long), and `ma_trend_forecast`: daily
+    growth = slope of a line fit to log(long MA) over its last `window`
+    points, projected from the **last close** (not the lagging MA); an 80%
+    band from 60-day daily log-return volatility widening with sqrt(time).
+    Future dates are business days (holidays not excluded). A simple,
+    explainable trend projection, deliberately not a predictive model.
+  - `fundamentals.py` — pure: `fundamentals_table(infos)` formats Yahoo's
+    `info` dict into a metric x ticker table, `—` for missing fields.
+    Note yfinance 1.x reports `dividendYield` already as a percent (0.33 =
+    0.33%) but `profitMargins` as a fraction.
+  - `market_data.py` — `parse_tickers`/`rebase_to_100` are pure;
+    `fetch_closes`/`fetch_info` hit Yahoo and are `lru_cache`d keyed by
+    today's date. Unknown tickers come back from Yahoo as all-NaN columns,
+    not errors, so `fetch_closes` drops and reports them.
 - `tests/` — pytest for `CreditCard/cleaning.py`, `CreditCard/categorize.py`,
-  `CreditCard/analytics.py`, `Budget/budgeting.py`, `Budget/export.py`, and
-  `Budget/statement.py` (imported there via
+  `CreditCard/analytics.py`, `Budget/budgeting.py`, `Budget/export.py`,
+  `Budget/statement.py`, and `Stocks/`'s pure modules (`tests/test_stocks.py`,
+  synthetic data only — never the network) (imported there via
   the `CreditCard.`/`Budget.` package paths, since pytest runs from the
   project root — only each Streamlit app's own `app.py` uses local imports;
   `Budget/app.py` is package-qualified even outside tests, see above).
@@ -184,6 +213,7 @@ historical reference but is no longer maintained.
 ```bash
 uv run streamlit run CreditCard/app.py
 uv run python -m Budget.app   # Dash, not Streamlit — see Structure above
+uv run shiny run Stocks/app.py   # Shiny for Python
 uv run pytest
 ```
 

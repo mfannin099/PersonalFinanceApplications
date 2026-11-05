@@ -4,8 +4,26 @@
     {
       "name": "budget",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "python", "-m", "Budget.app"],
+      "runtimeArgs": [
+        "run",
+        "python",
+        "-m",
+        "Budget.app"
+      ],
       "port": 8050
+    },
+    {
+      "name": "stocks",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "shiny",
+        "run",
+        "Stocks/app.py",
+        "--port",
+        "8001"
+      ],
+      "port": 8001
     }
   ]
 }
