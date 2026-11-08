@@ -341,3 +341,205 @@ def investor_metrics(
             built.append((label, cells))
         sections.append((title, built))
     return sections
+
+
+# --- reading guide ------------------------------------------------------------
+
+# The question each section answers, in the order the app shows them.
+SECTION_INTRO: dict[str, str] = {
+    "Income statement": "How much does the company sell and keep? The income statement is the scoreboard for a period.",
+    "Growth": "Is the business getting bigger? Growth is the main reason investors pay up for a stock.",
+    "Profitability": "How much of each dollar of sales becomes profit, and how well does the company use the money invested in it?",
+    "Valuation": "How expensive is the stock relative to what the company earns? A great company can still be a poor buy at the wrong price.",
+    "Financial health": "Could the company survive a bad stretch? Debt and short-term cash decide how much room for error it has.",
+    "Cash flow": "Is the profit real cash? Earnings can be shaped by accounting; cash is harder to fake.",
+    "Shareholder return": "How does the company pay owners back — dividends, buybacks — and does it dilute them?",
+    "Analyst view": "What do professional analysts expect? Useful context, but analysts are often wrong and often optimistic.",
+}
+
+# metric label -> (what it is, how to read it). Keys must match the row labels in SECTIONS (tested).
+GLOSSARY: dict[str, tuple[str, str]] = {
+    "Latest fiscal year": (
+        "The month the company's most recent annual (fiscal) year ended. Companies pick their own year-end.",
+        "Tickers can end in different months (e.g. Jun vs Sep), so annual figures cover slightly different periods.",
+    ),
+    "Revenue": (
+        "Total sales before any costs ('the top line'). Shown as Yahoo's trailing twelve months when available.",
+        "Bigger isn't automatically better — what matters is the trend (see Growth) and how much turns into profit.",
+    ),
+    "Gross profit": (
+        "Revenue minus the direct cost of making what was sold (materials, hosting, manufacturing).",
+        "Compare it with revenue (gross margin). It shows whether the product itself is profitable before overheads.",
+    ),
+    "Operating income": (
+        "Gross profit minus running costs such as salaries, R&D and marketing — profit from the core business, "
+        "before interest and taxes.",
+        "Positive and growing is what you want. Negative means the core business loses money (common in young companies).",
+    ),
+    "Net income": (
+        "The 'bottom line': profit after every cost, interest and tax. Shown as trailing twelve months when available.",
+        "Positive is healthy. One-off items (asset sales, write-downs) can distort a single year, so look at several years.",
+    ),
+    "EBITDA": (
+        "Earnings before interest, taxes, depreciation and amortisation — a rough proxy for operating cash earnings.",
+        "Handy for comparing companies with different debt and tax situations. It ignores capital spending, so it can flatter "
+        "heavy-spending businesses.",
+    ),
+    "Diluted EPS": (
+        "Earnings per share: net income divided by all shares, counting options and convertibles that could be exercised.",
+        "Rising EPS over time is the classic sign of a growing business. Compare with the share price via the P/E ratio.",
+    ),
+    "Revenue growth (last FY)": (
+        "How much revenue changed in the latest fiscal year versus the year before.",
+        "Green when positive. Mature large companies often grow 3–10%; fast growers 20%+. Compare against the same company's history.",
+    ),
+    "Net income growth (last FY)": (
+        "How much net income changed versus the prior year.",
+        "Profit growing faster than revenue means improving efficiency. Swings are large when the starting profit is small.",
+    ),
+    "Revenue CAGR (years shown)": (
+        "Compound annual growth rate of revenue across the fiscal years in the chart — the smoothed yearly rate.",
+        "Smooths out one-off years. If it's far below the last year's growth, recent growth may be accelerating (or a spike).",
+    ),
+    "Gross margin": (
+        "Gross profit as a share of revenue.",
+        "Higher means more pricing power or cheaper delivery. Software often runs 70%+, retailers 20–30% — compare within an industry.",
+    ),
+    "Operating margin": (
+        "Operating income as a share of revenue.",
+        "Shows how efficiently the whole business runs. Rising over time is a good sign; red when negative.",
+    ),
+    "Net margin": (
+        "Net income as a share of revenue — cents of profit per dollar sold.",
+        "Compare with peers. A very high margin can attract competition; red when the company loses money.",
+    ),
+    "Return on equity": (
+        "Net income divided by shareholders' equity: profit generated on the owners' money.",
+        "Green at 15%+, red below 5%. Debt and buybacks can inflate it (even above 100%), so read it alongside debt/equity.",
+    ),
+    "Return on assets": (
+        "Net income divided by total assets: profit generated by everything the company owns.",
+        "Green at 5%+, red below 1%. Asset-heavy industries (utilities, banks) naturally score lower.",
+    ),
+    "Return on invested capital": (
+        "After-tax operating profit divided by the capital (debt plus equity) put into the business. Calculated here from the "
+        "statements.",
+        "Green at 10%+, red below 5%. Sustained ROIC well above the company's cost of capital is the hallmark of a strong business.",
+    ),
+    "P/E (trailing)": (
+        "Share price divided by the last twelve months of earnings per share — dollars you pay per $1 of annual profit.",
+        "Lower is cheaper, but low can mean the market expects trouble. The long-run market average is roughly 15–20; "
+        "growth stocks run higher. Meaningless when earnings are negative.",
+    ),
+    "P/E (forward)": (
+        "Share price divided by analysts' expected earnings for the next twelve months.",
+        "Lower than the trailing P/E means earnings are expected to grow. It rests on forecasts that may not come true.",
+    ),
+    "PEG ratio": (
+        "P/E divided by expected earnings growth rate — price adjusted for how fast profits are growing.",
+        "Green at 1 or below (growth justifies the price), red above 2. A rough guide that depends on a growth forecast.",
+    ),
+    "Price / sales": (
+        "Market value divided by revenue.",
+        "Useful when profits are small or negative. Lower is cheaper, but compare within an industry — margins differ widely.",
+    ),
+    "Price / book": (
+        "Market value divided by the accounting value of equity (assets minus liabilities).",
+        "Under 1 can mean cheap or troubled. Asset-light companies (software, brands) naturally trade at high multiples.",
+    ),
+    "EV / EBITDA": (
+        "Enterprise value (market value plus debt minus cash) divided by EBITDA — the whole business's price versus its "
+        "operating earnings.",
+        "Lower is cheaper. Treats debt fairly, so it's good for comparing companies with different balance sheets.",
+    ),
+    "Free cash flow yield": (
+        "Free cash flow divided by market value — the cash return you'd get on the whole company at today's price.",
+        "Green at 4%+ (compare with what safe bonds pay). Low yield means you're paying for future growth.",
+    ),
+    "Debt / equity": (
+        "Total debt divided by shareholders' equity. Calculated from the latest annual balance sheet.",
+        "Green at 1x or below, red above 2x. Utilities and banks run higher by design; negative equity makes it unreliable.",
+    ),
+    "Current ratio": (
+        "Short-term assets divided by short-term liabilities — can the company pay bills due within a year?",
+        "Green at 1.5+, red below 1. Below 1 isn't always trouble for companies with steady cash inflows (e.g. big retailers).",
+    ),
+    "Interest coverage": (
+        "Operating profit (EBIT) divided by interest expense — how many times profit covers the interest bill.",
+        "Green at 5x+, red below 2x. Under about 1.5x means profits barely cover interest.",
+    ),
+    "Total debt": (
+        "All borrowings, including lease obligations.",
+        "Judge it against cash and earnings, not in isolation — large companies can carry large debt safely.",
+    ),
+    "Cash & short-term investments": (
+        "Cash plus investments that can be turned into cash quickly.",
+        "A big cash pile is a cushion and funds buybacks, dividends and acquisitions.",
+    ),
+    "Net debt (last FY)": (
+        "Total debt minus cash. Negative means the company holds more cash than debt.",
+        "Negative ('net cash') is the safest position. Compare with EBITDA: net debt over about 3x EBITDA is heavy.",
+    ),
+    "Operating cash flow": (
+        "Cash the core business generated, after working-capital changes but before capital spending.",
+        "Should be positive and, over time, close to or above net income. Green when positive.",
+    ),
+    "Capital expenditure (last FY)": (
+        "Cash spent on equipment, buildings and technology, shown as a negative (cash out).",
+        "Large capex reduces free cash flow now but can fund future growth. Watch whether it jumps versus revenue.",
+    ),
+    "Free cash flow": (
+        "Operating cash flow minus capital spending — cash left over for dividends, buybacks, debt repayment or growth.",
+        "Green when positive. Many investors consider it the truest measure of earnings power.",
+    ),
+    "FCF conversion (FCF / net income)": (
+        "How much of reported profit turned into free cash.",
+        "Green at 80%+, red below 50%. Persistently low conversion means profits aren't turning into cash — investigate why.",
+    ),
+    "Dividend yield": (
+        "Annual dividend per share divided by the share price.",
+        "Higher pays you more now, but a very high yield can signal the market doubts it can be kept. Many growth companies pay none.",
+    ),
+    "Payout ratio": (
+        "The share of earnings paid out as dividends.",
+        "Green at 60% or below (room to keep paying), red above 100% (paying out more than it earns).",
+    ),
+    "Buybacks (last FY)": (
+        "Cash spent repurchasing the company's own shares.",
+        "Returns cash to owners and shrinks the share count, raising EPS. Less valuable if it merely offsets share-based pay.",
+    ),
+    "Share count change (years shown)": (
+        "Change in diluted share count over the fiscal years shown.",
+        "Green when shares shrink by 1%+ (buybacks outpace new issuance), red when they grow 2%+ (existing owners are diluted).",
+    ),
+    "Mean price target": (
+        "The average price analysts expect in about a year.",
+        "A consensus guess, not a promise. Targets cluster near the current price and are revised after price moves.",
+    ),
+    "Upside to target": (
+        "How far the mean target sits above (or below) the current price.",
+        "Green at +10% or more, red at -10% or less. Check how many analysts cover the stock before relying on it.",
+    ),
+    "Recommendation": (
+        "The consensus rating (e.g. Buy, Hold) from Yahoo's analyst data.",
+        "Most ratings are Buy or Hold, so a 'Hold' is often the cautious end of the scale. Treat it as sentiment, not advice.",
+    ),
+}
+
+READING_ORDER = [
+    ("Growth", "Is the business expanding? Check revenue and profit growth over several years, not just the last one."),
+    ("Profitability", "Does the growth make money? Margins and returns show quality; compare them with peers."),
+    ("Financial health", "Can it handle a rough patch? Look at debt versus cash and interest coverage."),
+    ("Cash flow", "Is profit turning into cash? Free cash flow should be positive and track net income."),
+    ("Valuation", "Only now ask: is the price fair for all of the above? Compare multiples across the tickers you loaded."),
+]
+
+GUIDE_CAVEATS = [
+    "Colours are rule-of-thumb cues (green = looks healthy, red = worth a closer look), not recommendations. What's "
+    "normal depends heavily on the industry — banks, utilities, software and retailers all look different.",
+    "Compare companies in the same industry and look at several years of history; one number in isolation rarely means much.",
+    "Some rows use Yahoo's trailing-twelve-month data and some use the latest fiscal year, so they can cover slightly "
+    "different periods (the 'Latest fiscal year' row shows when the annual data ends).",
+    "A dash (—) means Yahoo didn't report that figure, which is common for newer or foreign-listed companies.",
+    "This is educational information, not investment advice.",
+]

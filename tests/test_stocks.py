@@ -6,7 +6,7 @@ import pytest
 
 from Stocks.forecast import crossovers, ma_trend_forecast, moving_average
 from Stocks.fundamentals import MISSING, fundamentals_table
-from Stocks.market_data import parse_tickers, rebase_to_100
+from Stocks.market_data import START_VALUE, parse_tickers, rebase
 
 
 def _prices(values) -> pd.Series:
@@ -115,11 +115,13 @@ def test_parse_tickers_normalizes_dedupes_and_limits():
     assert rejected == ["BAD$SYM", "B", "C"]
 
 
-def test_rebase_to_100_uses_each_columns_first_price():
+def test_rebase_uses_each_columns_first_price_and_starts_at_1000():
     closes = pd.DataFrame({"X": [50.0, 75.0], "Y": [np.nan, 10.0]})
-    rebased = rebase_to_100(closes)
-    assert rebased["X"].tolist() == [100.0, 150.0]
-    assert rebased["Y"].iloc[1] == 100.0
+    rebased = rebase(closes)
+    assert START_VALUE == 1000
+    assert rebased["X"].tolist() == [1000.0, 1500.0]
+    assert rebased["Y"].iloc[1] == 1000.0
+    assert rebase(closes, start=100)["X"].tolist() == [100.0, 150.0]
 
 
 # --- financials ----------------------------------------------------------------
@@ -309,3 +311,20 @@ def test_auto_tune_picks_from_the_grid_and_leaves_other_params_alone():
     assert res["auto_tuned"]
     assert {"max_depth": res["params"]["max_depth"], "learning_rate": res["params"]["learning_rate"]} in TUNE_GRID
     assert res["params"]["min_child_weight"] == PARAMS["min_child_weight"]
+
+
+# --- financials reading guide ------------------------------------------------------
+
+from Stocks.financials import GLOSSARY, READING_ORDER, SECTION_INTRO, SECTIONS  # noqa: E402
+
+
+def test_glossary_covers_every_metric_row_and_nothing_extra():
+    labels = [label for _, rows in SECTIONS for label, *_ in rows]
+    assert set(labels) == set(GLOSSARY)
+    assert all(meaning.strip() and reading.strip() for meaning, reading in GLOSSARY.values())
+
+
+def test_every_section_has_an_intro_and_reading_order_names_real_sections():
+    titles = [title for title, _ in SECTIONS]
+    assert set(SECTION_INTRO) == set(titles)
+    assert all(title in titles for title, _ in READING_ORDER)
