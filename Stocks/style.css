@@ -256,3 +256,6 @@ h1, h2, h3, h4, h5 { letter-spacing: -0.015em; }
 .metric-card.signal-bearish .metric-value, .metric-card.signal-bearish .metric-icon { color: var(--bad); }
 .metric-card.signal-bearish .metric-icon { background: #fde4e4; }
 @media (max-width: 767.98px) { .metric-value { font-size: 1.25rem; } }
+
+/* KPI rows: as many tiles per row as fit, instead of squeezing four into a narrow pane. */
+.metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; margin-bottom: 1rem; }

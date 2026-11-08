@@ -47,6 +47,7 @@ SECTION_ICONS = {
     "Analyst view": "megaphone",
 }
 INK, MUTED, GRID = "#1b2437", "#6b7489", "#eef0f7"
+ML_HISTORY = {"2y": "2 years", "5y": "5 years (recommended)", "10y": "10 years"}
 FAVICON = (
     "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' "
     "fill='%233b5bdb'/%3E%3Cpath d='M6 22l6-7 5 4 9-11' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' "
@@ -377,13 +378,19 @@ app_ui = ui.page_sidebar(
             ui.span(icon("cpu", "me-1"), "ML Forecast"),
             ui.layout_columns(
                 ui.input_select("ml_ticker", "Ticker", choices=[]),
+                ui.input_select("ml_history", "History to learn from", ML_HISTORY, selected="5y"),
                 ui.div(
                     ui.input_action_button(
                         "train_ml", "Train XGBoost model", icon=icon("lightning-charge-fill"), class_="btn-primary"
                     ),
                     class_="ml-button",
                 ),
-                col_widths=(4, 4),
+                col_widths={"xs": (12, 12, 12), "md": (6, 6, 12), "xl": (3, 3, 4)},
+            ),
+            ui.div(
+                "The model needs a few hundred days to train and validate, so it loads its own history instead of using "
+                "the sidebar lookback. Longer is better; 5 years is a good default.",
+                class_="hint mb-3",
             ),
             ml_settings(),
             ui.output_ui("ml_status"),
@@ -716,7 +723,7 @@ def server(input, output, session):
         warning = (
             ui.div(icon("info-circle", "me-2"), res["error"], class_="alert alert-warning mb-0") if res["error"] else None
         )
-        return ui.TagList(ui.layout_columns(*boxes, fill=False), warning)
+        return ui.TagList(ui.div(*boxes, class_="metric-grid"), warning)
 
     @render_widget
     def forecast_chart():
@@ -794,16 +801,31 @@ def server(input, output, session):
 
     # --- ML forecast ----------------------------------------------------------
 
+    def _ml_signature() -> tuple:
+        """Everything that changes the trained result — compared to spot results gone stale."""
+        features = tuple(f for i in range(len(FEATURE_GROUPS)) for f in input[f"ml_feat_{i}"]())
+        return (
+            input.ml_ticker(), input.ml_history(), input.horizon(), features, input.ml_autotune(),
+            input.ml_depth(), input.ml_trees(), input.ml_lr(), input.ml_minchild(),
+            input.ml_subsample(), input.ml_colsample(), input.ml_lambda(),
+        )
+
     @reactive.calc
     @reactive.event(input.train_ml)
     def ml_result() -> dict:
         """Runs only when the button is clicked."""
-        closes = analysis()["closes"]
         ticker = input.ml_ticker()
-        if closes.empty or ticker not in closes.columns:
+        if not ticker:
             return {"error": "Load some tickers first (Run analysis), then train the model."}
         with ui.Progress(min=0, max=1) as progress:
-            progress.set(0.3, message=f"Training XGBoost on {ticker}…", detail="Walk-forward validation, then a final fit")
+            progress.set(0.2, message=f"Loading {input.ml_history()} of {ticker} prices…")
+            try:
+                closes, _ = fetch_closes([ticker], period=input.ml_history())
+            except Exception as exc:  # network/Yahoo failures surface as many exception types
+                return {"error": f"Couldn't load prices from Yahoo Finance ({exc})."}
+            if closes.empty:
+                return {"error": f"No price data found for {ticker}."}
+            progress.set(0.5, message=f"Training XGBoost on {ticker}…", detail="Walk-forward validation, then a final fit")
             try:
                 selected = [f for i in range(len(FEATURE_GROUPS)) for f in input[f"ml_feat_{i}"]()]
                 overrides = {
@@ -818,7 +840,10 @@ def server(input, output, session):
                 forecast = train_and_forecast(
                     closes[ticker], input.horizon(), overrides, selected, auto_tune=input.ml_autotune()
                 )
-                return {"ticker": ticker, "error": None, **forecast}
+                return {
+                    "ticker": ticker, "error": None, "signature": _ml_signature(),
+                    "history": input.ml_history(), **forecast,
+                }
             except ValueError as exc:
                 return {"error": str(exc)}
 
@@ -841,13 +866,20 @@ def server(input, output, session):
         if input.train_ml() == 0:
             return ui.div(
                 icon("lightning-charge", "me-2"),
-                "Pick a ticker and click Train XGBoost model. Use a 2-year or longer lookback — the model needs "
-                "a few hundred days of history. Training takes a few seconds.",
+                "Pick a ticker and click Train XGBoost model. Changes to the settings below only take effect "
+                "when you train again. Training takes a few seconds.",
                 class_="alert alert-info",
             )
         res = ml_result()
         if res.get("error"):
             return ui.div(icon("exclamation-triangle-fill", "me-2"), res["error"], class_="alert alert-warning")
+        if res.get("signature") != _ml_signature():
+            return ui.div(
+                icon("arrow-repeat", "me-2"),
+                "Settings changed since the last run — the results below are out of date. "
+                "Click Train XGBoost model to apply them.",
+                class_="alert alert-info",
+            )
         return None
 
     @render.ui
@@ -858,7 +890,7 @@ def server(input, output, session):
         change = res["predicted_return"]
         p = res["params"]
         return ui.TagList(
-            ui.layout_columns(
+            ui.div(
                 _value_box(
                     f"Predicted {res['horizon']}-day return",
                     f"{change:+.1%}",
@@ -884,7 +916,7 @@ def server(input, output, session):
                     f"always-'up' would score {m['up_rate']:.0%}",
                     "compass",
                 ),
-                fill=False,
+                class_="metric-grid",
             ),
             ui.div(icon("info-circle", "me-2"), res["verdict"], class_="alert alert-secondary"),
             ui.div(
@@ -893,7 +925,8 @@ def server(input, output, session):
                 f"min leaf weight {p['min_child_weight']}, row sampling {p['subsample']:g}, feature sampling "
                 f"{p['colsample_bytree']:g}, L2 {p['reg_lambda']:g}"
                 + (" (depth and learning rate auto-tuned)" if res["auto_tuned"] else "")
-                + f" · {len(res['features'])} of {len([f for cols in FEATURE_GROUPS.values() for f in cols])} features.",
+                + f" · {len(res['features'])} of {len([f for cols in FEATURE_GROUPS.values() for f in cols])} features"
+                f" · {ML_HISTORY[res['history']].split(' (')[0]} of history.",
                 class_="section-sub mb-3",
             ),
         )
