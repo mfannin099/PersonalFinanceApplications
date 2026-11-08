@@ -19,6 +19,7 @@ from forecast import BAND_LABEL, MA_KINDS, crossovers, ma_trend_forecast, moving
 from financials import annual_table
 from financials import investor_metrics as investor_metrics_fn
 from fundamentals import fundamentals_table
+from ml_forecast import FEATURE_GROUPS, FOLDS, PARAM_BOUNDS, PARAMS, TUNE_GRID, train_and_forecast
 from market_data import (
     MAX_TICKERS,
     PERIODS,
@@ -77,6 +78,116 @@ def _style_figure(fig: go.Figure, height: int = 420, money_axis: bool = True) ->
         yaxis={"gridcolor": GRID, "tickprefix": "$" if money_axis else "", "tickformat": ",.0f"},
     )
     return fig
+
+
+def ml_explainer() -> ui.Tag:
+    params = ", ".join(f"{k}={v}" for k, v in PARAMS.items() if k in ("n_estimators", "max_depth", "learning_rate", "subsample", "min_child_weight", "reg_lambda"))
+    groups = [ui.tags.li(ui.tags.b(f"{name}: "), ", ".join(cols)) for name, cols in FEATURE_GROUPS.items()]
+    return ui.div(
+        ui.tags.ol(
+            ui.tags.li(
+                ui.tags.b("What it predicts. "),
+                "The stock's return over the 'Project ahead' horizon — not the price. Prices trend upward over time and "
+                "tree models can't extrapolate past values they've seen, so a price model would just copy the recent past. "
+                "Returns are far more stable, which suits trees. The price shown is the predicted return applied to the last close.",
+            ),
+            ui.tags.li(
+                ui.tags.b("Time-based features. "),
+                "For each day, only information known at that day's close:",
+                ui.tags.ul(*groups),
+            ),
+            ui.tags.li(
+                ui.tags.b("A deliberately small model. "),
+                f"XGBoost builds many tiny trees, each correcting the last. Trees are only {PARAMS['max_depth']} levels deep "
+                "(each can combine at most two features), learn slowly, see random subsets of rows and features, and need "
+                "real support to make a split. Settings are fixed — no parameter search — because searching on a noisy "
+                f"target mostly finds settings that fit the past by luck. ({params})",
+            ),
+            ui.tags.li(
+                ui.tags.b("Walk-forward validation. "),
+                f"The model is trained on the early part of history and tested on the next unseen block, {FOLDS} times, "
+                "each time with more training data. A gap of one horizon between train and test stops overlapping "
+                "multi-day returns from leaking the answer. This mimics how you'd actually use it.",
+            ),
+            ui.tags.li(
+                ui.tags.b("Scored against naive guesses. "),
+                "'Skill' compares the model's average error to simply guessing the typical past return; it must be "
+                "above 0 to add anything. The hit rate is compared with always guessing 'up'. Correlation checks that "
+                "bigger predictions go with bigger outcomes.",
+            ),
+            ui.tags.li(
+                ui.tags.b("Final forecast and band. "),
+                "A last model is fit on all days with a known outcome and applied to today's features. The shaded range "
+                "is the 10th–90th percentile of the model's out-of-sample errors, i.e. how wrong it has really been.",
+            ),
+        ),
+        ui.div(
+            "Daily stock returns are very close to noise, so it's normal — and informative — for this model to show "
+            "little or no skill. For prices, a random walk is famously hard to beat; ARIMA, Prophet or LSTMs face the "
+            "same limit. Use the scorecard, not the point forecast. Not investment advice.",
+            class_="alert alert-warning mb-0",
+        ),
+        class_="ml-explainer px-3 pb-3",
+    )
+
+
+def ml_settings() -> ui.Tag:
+    """Collapsible tuning panel: feature selection, hyper-parameters and auto-tune."""
+    lo, hi = PARAM_BOUNDS, PARAM_BOUNDS
+
+    def slider(id_, label, key, step, help_):
+        return ui.div(
+            ui.input_slider(id_, label, min=lo[key][0], max=hi[key][1], value=PARAMS[key], step=step),
+            ui.div(help_, class_="hint"),
+        )
+
+    features = [
+        ui.input_checkbox_group(f"ml_feat_{i}", name, choices=cols, selected=cols, inline=True)
+        for i, (name, cols) in enumerate(FEATURE_GROUPS.items())
+    ]
+    return ui.accordion(
+        ui.accordion_panel(
+            ui.span(icon("sliders", "me-2"), "Model settings (optional)"),
+            ui.layout_columns(
+                ui.div(
+                    ui.div("Features", class_="sidebar-section"),
+                    ui.div("Untick anything you don't want the model to see.", class_="hint"),
+                    *features,
+                ),
+                ui.div(
+                    ui.div("Hyper-parameters", class_="sidebar-section"),
+                    slider("ml_depth", "Tree depth", "max_depth", 1, "Deeper trees capture more feature interactions but memorise noise faster."),
+                    slider("ml_trees", "Number of trees", "n_estimators", 10, "More trees fit the training data harder."),
+                    slider("ml_lr", "Learning rate", "learning_rate", 0.01, "How much each tree corrects the last. Lower is gentler and usually safer."),
+                    slider("ml_minchild", "Min. leaf weight", "min_child_weight", 1, "Higher forces each split to rest on more days."),
+                ),
+                ui.div(
+                    ui.div("Regularisation", class_="sidebar-section"),
+                    slider("ml_subsample", "Row sampling", "subsample", 0.05, "Share of days each tree sees. Below 1 adds useful randomness."),
+                    slider("ml_colsample", "Feature sampling", "colsample_bytree", 0.05, "Share of features each tree sees."),
+                    slider("ml_lambda", "L2 penalty", "reg_lambda", 0.5, "Shrinks leaf values toward zero; higher is more conservative."),
+                    ui.input_switch("ml_autotune", "Auto-tune depth & learning rate", value=False),
+                    ui.div(
+                        f"Tries {len(TUNE_GRID)} combinations (depth 1–3 × learning rate 0.02/0.05) using only data before each "
+                        "test block, so the scorecard stays honest. Overrides the two sliders above. Slower.",
+                        class_="hint",
+                    ),
+                    ui.input_action_button("ml_reset", "Reset to defaults", class_="btn-outline-secondary btn-sm"),
+                ),
+                col_widths=(4, 4, 4),
+            ),
+            ui.div(
+                icon("exclamation-triangle", "me-1"),
+                "More flexible settings (deeper, more trees, higher learning rate) fit the past better — and usually "
+                "forecast the future worse. Judge changes by the out-of-sample skill, not the in-sample fit.",
+                class_="window-warning mb-0",
+            ),
+            value="settings",
+        ),
+        id="ml_settings_acc",
+        open=False,
+        class_="mb-3",
+    )
 
 
 app_ui = ui.page_sidebar(
@@ -175,6 +286,32 @@ app_ui = ui.page_sidebar(
             ),
         ),
         ui.nav_panel(
+            ui.span(icon("cpu", "me-1"), "ML Forecast"),
+            ui.layout_columns(
+                ui.input_select("ml_ticker", "Ticker", choices=[]),
+                ui.div(
+                    ui.input_action_button(
+                        "train_ml", "Train XGBoost model", icon=icon("lightning-charge-fill"), class_="btn-primary"
+                    ),
+                    class_="ml-button",
+                ),
+                col_widths=(4, 4),
+            ),
+            ml_settings(),
+            ui.output_ui("ml_status"),
+            ui.output_ui("ml_summary"),
+            ui.card(
+                card_header("clipboard-data", "Honest scorecard", "Out-of-sample walk-forward results"),
+                ui.output_ui("ml_scorecard"),
+                output_widget("ml_oos_chart"),
+            ),
+            ui.card(card_header("bar-chart-steps", "What the model looked at"), output_widget("ml_importance_chart")),
+            ui.card(
+                card_header("book", "How this works", "The whole process, step by step"),
+                ml_explainer(),
+            ),
+        ),
+        ui.nav_panel(
             ui.span(icon("receipt", "me-1"), "Financials"),
             ui.layout_columns(ui.input_select("fin_ticker", "Chart ticker", choices=[]), col_widths=(4,)),
             ui.card(
@@ -239,6 +376,11 @@ def server(input, output, session):
         )
         ui.update_select(
             "fin_ticker", choices=tickers, selected=current_fin if current_fin in tickers else (tickers or [None])[0]
+        )
+        with reactive.isolate():
+            current_ml = input.ml_ticker()
+        ui.update_select(
+            "ml_ticker", choices=tickers, selected=current_ml if current_ml in tickers else (tickers or [None])[0]
         )
 
     @reactive.effect
@@ -475,6 +617,152 @@ def server(input, output, session):
         ]
         head = ui.tags.tr(ui.tags.th("Date"), ui.tags.th("Signal"), ui.tags.th("At price", class_="text-end"))
         return ui.tags.table(ui.tags.thead(head), ui.tags.tbody(*rows), class_="table fundamentals-table mb-0")
+
+    # --- ML forecast ----------------------------------------------------------
+
+    @reactive.calc
+    @reactive.event(input.train_ml)
+    def ml_result() -> dict:
+        """Runs only when the button is clicked."""
+        closes = analysis()["closes"]
+        ticker = input.ml_ticker()
+        if closes.empty or ticker not in closes.columns:
+            return {"error": "Load some tickers first (Run analysis), then train the model."}
+        with ui.Progress(min=0, max=1) as progress:
+            progress.set(0.3, message=f"Training XGBoost on {ticker}…", detail="Walk-forward validation, then a final fit")
+            try:
+                selected = [f for i in range(len(FEATURE_GROUPS)) for f in input[f"ml_feat_{i}"]()]
+                overrides = {
+                    "max_depth": input.ml_depth(),
+                    "n_estimators": input.ml_trees(),
+                    "learning_rate": input.ml_lr(),
+                    "min_child_weight": input.ml_minchild(),
+                    "subsample": input.ml_subsample(),
+                    "colsample_bytree": input.ml_colsample(),
+                    "reg_lambda": input.ml_lambda(),
+                }
+                forecast = train_and_forecast(
+                    closes[ticker], input.horizon(), overrides, selected, auto_tune=input.ml_autotune()
+                )
+                return {"ticker": ticker, "error": None, **forecast}
+            except ValueError as exc:
+                return {"error": str(exc)}
+
+    @reactive.effect
+    @reactive.event(input.ml_reset)
+    def _ml_reset():
+        for i, cols in enumerate(FEATURE_GROUPS.values()):
+            ui.update_checkbox_group(f"ml_feat_{i}", selected=cols)
+        ui.update_slider("ml_depth", value=PARAMS["max_depth"])
+        ui.update_slider("ml_trees", value=PARAMS["n_estimators"])
+        ui.update_slider("ml_lr", value=PARAMS["learning_rate"])
+        ui.update_slider("ml_minchild", value=PARAMS["min_child_weight"])
+        ui.update_slider("ml_subsample", value=PARAMS["subsample"])
+        ui.update_slider("ml_colsample", value=PARAMS["colsample_bytree"])
+        ui.update_slider("ml_lambda", value=PARAMS["reg_lambda"])
+        ui.update_switch("ml_autotune", value=False)
+
+    @render.ui
+    def ml_status():
+        if input.train_ml() == 0:
+            return ui.div(
+                icon("lightning-charge", "me-2"),
+                "Pick a ticker and click Train XGBoost model. Use a 2-year or longer lookback — the model needs "
+                "a few hundred days of history. Training takes a few seconds.",
+                class_="alert alert-info",
+            )
+        res = ml_result()
+        if res.get("error"):
+            return ui.div(icon("exclamation-triangle-fill", "me-2"), res["error"], class_="alert alert-warning")
+        return None
+
+    @render.ui
+    def ml_summary():
+        res = ml_result()
+        req(not res.get("error"))
+        m = res["metrics"]
+        change = res["predicted_return"]
+        p = res["params"]
+        return ui.TagList(
+            ui.layout_columns(
+                _value_box(
+                    f"Predicted {res['horizon']}-day return",
+                    f"{change:+.1%}",
+                    f"{res['ticker']} by {res['target_date']:%b %d, %Y}",
+                    "graph-up-arrow" if change >= 0 else "graph-down-arrow",
+                ),
+                _value_box(
+                    "Implied price",
+                    f"${res['predicted_price']:,.2f}",
+                    f"80% range ${res['lower_price']:,.0f} – ${res['upper_price']:,.0f}",
+                    "cash",
+                ),
+                _value_box(
+                    "Skill vs. naive guess",
+                    f"{m['skill']:+.1%}",
+                    "above 0 = beats guessing the average",
+                    "bullseye",
+                    class_="signal-bullish" if m["skill"] > 0 else "signal-bearish",
+                ),
+                _value_box(
+                    "Direction hit rate",
+                    f"{m['hit_rate']:.0%}",
+                    f"always-'up' would score {m['up_rate']:.0%}",
+                    "compass",
+                ),
+                fill=False,
+            ),
+            ui.div(icon("info-circle", "me-2"), res["verdict"], class_="alert alert-secondary"),
+            ui.div(
+                ui.tags.b("Settings used: "),
+                f"depth {p['max_depth']}, {p['n_estimators']} trees, learning rate {p['learning_rate']:g}, "
+                f"min leaf weight {p['min_child_weight']}, row sampling {p['subsample']:g}, feature sampling "
+                f"{p['colsample_bytree']:g}, L2 {p['reg_lambda']:g}"
+                + (" (depth and learning rate auto-tuned)" if res["auto_tuned"] else "")
+                + f" · {len(res['features'])} of {len([f for cols in FEATURE_GROUPS.values() for f in cols])} features.",
+                class_="section-sub mb-3",
+            ),
+        )
+
+    @render.ui
+    def ml_scorecard():
+        res = ml_result()
+        req(not res.get("error"))
+        m = res["metrics"]
+        rows = [
+            ("Test days (never seen in training)", f"{m['test_days']:,}"),
+            ("Model avg. error (MAE)", f"{m['mae_model']:.2%}"),
+            ("Naive-guess avg. error", f"{m['mae_baseline']:.2%}"),
+            ("Correlation, predicted vs. actual", f"{m['correlation']:+.2f}"),
+            ("In-sample error (days the model trained on)", f"{res['train_mae']:.2%}"),
+            ("Training rows (final model)", f"{res['n_rows']:,}"),
+        ]
+        body = [ui.tags.tr(ui.tags.td(k), ui.tags.td(v, class_="text-end")) for k, v in rows]
+        return ui.tags.table(ui.tags.tbody(*body), class_="table fundamentals-table")
+
+    @render_widget
+    def ml_oos_chart():
+        res = ml_result()
+        req(not res.get("error"))
+        oos = res["oos"]
+        fig = go.Figure()
+        fig.add_scatter(x=oos.index, y=oos["Actual"], name="Actual", line={"color": "#8a94ad", "width": 1.5})
+        fig.add_scatter(x=oos.index, y=oos["Predicted"], name="Model prediction", line={"color": PALETTE[0], "width": 2})
+        _style_figure(fig, height=320)
+        fig.update_yaxes(tickprefix="", tickformat=".0%", title=f"{res['horizon']}-day forward return")
+        return fig
+
+    @render_widget
+    def ml_importance_chart():
+        res = ml_result()
+        req(not res.get("error"))
+        imp = res["importance"].sort_values()
+        fig = go.Figure(go.Bar(x=imp.values, y=imp.index, orientation="h", marker_color=PALETTE[0]))
+        _style_figure(fig, height=380)
+        fig.update_layout(hovermode="closest")
+        fig.update_xaxes(tickformat=".0%", title="Share of the model's total gain")
+        fig.update_yaxes(tickprefix="", gridcolor="rgba(0,0,0,0)")
+        return fig
 
     # --- Financials -----------------------------------------------------------
 

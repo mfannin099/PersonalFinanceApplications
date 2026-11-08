@@ -204,6 +204,23 @@ per folder, run separately).
     Yahoo's trailing `info` figure and falling back to the latest fiscal year.
     Self-contained (own formatters) so it imports the same way locally and in
     tests. The health cues are rule-of-thumb thresholds, not advice.
+  - `ml_forecast.py` — pure: a small XGBoost model (button-triggered "ML
+    Forecast" tab) predicting the **forward return** over the horizon, not the
+    price (trees can't extrapolate price levels). Time-based features only
+    (lagged returns, momentum, volatility, distance from SMA20/50, day of
+    week/month). Fixed shallow params (`PARAMS`, depth 2) — deliberately no
+    tuning. Validated by expanding-window walk-forward with a `horizon`-day
+    purge gap and scored vs. naive baselines (skill, hit rate vs. always-up,
+    correlation); the 80% band is the empirical 10-90% quantile of OOS errors.
+    Tunable from a collapsible "Model settings" panel: feature on/off by group,
+    seven hyper-parameters (clamped to `PARAM_BOUNDS`), and an optional
+    **nested** auto-tune over a tiny grid (`TUNE_GRID`: depth 1-3 x learning
+    rate 0.02/0.05) — candidates are scored by inner walk-forward using only
+    each fold's training window, so tuning can't leak into the scorecard. The
+    scorecard also shows in-sample vs. out-of-sample error to expose overfit.
+    On real stocks it usually shows no skill — that's the honest result and
+    the UI says so. Needs `xgboost` + `scikit-learn`; on macOS also
+    `brew install libomp` (XGBoost's OpenMP runtime).
   - `fundamentals.py` — pure: `fundamentals_table(infos)` formats Yahoo's
     `info` dict into a metric x ticker table, `—` for missing fields.
     Note yfinance 1.x reports `dividendYield` already as a percent (0.33 =
