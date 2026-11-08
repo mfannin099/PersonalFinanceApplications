@@ -328,3 +328,34 @@ def test_every_section_has_an_intro_and_reading_order_names_real_sections():
     titles = [title for title, _ in SECTIONS]
     assert set(SECTION_INTRO) == set(titles)
     assert all(title in titles for title, _ in READING_ORDER)
+
+
+# --- snapshot cards -----------------------------------------------------------------
+
+from Stocks.snapshot import SPARK_POINTS, price_snapshot, sparkline_points  # noqa: E402
+
+
+def test_price_snapshot_computes_changes_and_range_position():
+    closes = pd.DataFrame({"A": [100.0, 110.0, 105.0, 120.0], "B": [np.nan, 50.0, 50.0, 50.0], "C": [np.nan] * 4})
+    snap = price_snapshot(closes)
+    assert list(snap.index) == ["A", "B"]  # all-NaN tickers are dropped
+    a = snap.loc["A"]
+    assert a["Last"] == 120 and a["Day change"] == pytest.approx(120 / 105 - 1)
+    assert a["Period return"] == pytest.approx(0.2) and a["Range position"] == pytest.approx(1.0)
+    assert (a["Low"], a["High"]) == (100, 120)
+    assert pd.isna(snap.loc["B", "Range position"])  # flat price: no range to position within
+
+
+def test_price_snapshot_single_price_has_nan_changes():
+    snap = price_snapshot(pd.DataFrame({"A": [10.0]}))
+    assert snap.loc["A", "Last"] == 10 and pd.isna(snap.loc["A", "Day change"])
+
+
+def test_sparkline_points_scale_into_box_and_handle_degenerate_input():
+    pts = [tuple(map(float, p.split(","))) for p in sparkline_points([1, 3, 2, 5], width=100, height=40, pad=2).split()]
+    assert len(pts) == 4 and pts[0][0] == 2 and pts[-1][0] == 98
+    assert min(y for _, y in pts) == 2 and max(y for _, y in pts) == 38  # lowest value at the bottom
+    assert pts[3][1] < pts[0][1]  # higher value sits higher (smaller y)
+    assert sparkline_points([5, 5, 5]).count(",") == 3  # flat series still draws a level line
+    assert sparkline_points([1]) == "" and sparkline_points([]) == ""
+    assert len(sparkline_points(range(500)).split()) == SPARK_POINTS
