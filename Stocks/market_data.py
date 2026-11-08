@@ -1,6 +1,6 @@
 """Yahoo Finance access via ``yfinance``, plus ticker parsing.
 
-``parse_tickers`` and ``rebase_to_100`` are pure. The ``fetch_*`` functions hit
+``parse_tickers`` and ``rebase`` are pure. The ``fetch_*`` functions hit
 the network and are cached in-process, keyed by today's date so a long-running
 server doesn't serve yesterday's prices forever.
 """
@@ -13,6 +13,7 @@ import pandas as pd
 import yfinance as yf
 
 MAX_TICKERS = 5
+START_VALUE = 1000  # the 'growth of $1,000' chart starts every ticker here
 PERIODS = {"6mo": "6 months", "1y": "1 year", "2y": "2 years", "5y": "5 years", "custom": "Custom range"}
 _TICKER_PATTERN = re.compile(r"^[A-Z0-9^][A-Z0-9.\-=^]{0,14}$")
 
@@ -36,9 +37,9 @@ def parse_tickers(text: str, limit: int = MAX_TICKERS) -> tuple[list[str], list[
     return valid, rejected
 
 
-def rebase_to_100(closes: pd.DataFrame) -> pd.DataFrame:
-    """Each column scaled so its first available price is 100, for comparing growth."""
-    return closes.apply(lambda col: col / col.dropna().iloc[0] * 100 if col.notna().any() else col)
+def rebase(closes: pd.DataFrame, start: float = START_VALUE) -> pd.DataFrame:
+    """Each column scaled so its first available price is ``start``, for comparing growth."""
+    return closes.apply(lambda col: col / col.dropna().iloc[0] * start if col.notna().any() else col)
 
 
 @lru_cache(maxsize=64)

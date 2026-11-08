@@ -16,7 +16,7 @@ from pathlib import Path
 import pandas as pd
 import plotly.graph_objects as go
 from forecast import BAND_LABEL, MA_KINDS, crossovers, ma_trend_forecast, moving_average
-from financials import annual_table
+from financials import GLOSSARY, GUIDE_CAVEATS, READING_ORDER, SECTION_INTRO, SECTIONS, annual_table
 from financials import investor_metrics as investor_metrics_fn
 from fundamentals import fundamentals_table
 from ml_forecast import FEATURE_GROUPS, FOLDS, PARAM_BOUNDS, PARAMS, TUNE_GRID, train_and_forecast
@@ -27,7 +27,8 @@ from market_data import (
     fetch_info,
     fetch_statements,
     parse_tickers,
-    rebase_to_100,
+    START_VALUE,
+    rebase,
 )
 from shiny import App, reactive, render, req, ui
 from shinywidgets import output_widget, render_widget
@@ -190,6 +191,49 @@ def ml_settings() -> ui.Tag:
     )
 
 
+def financials_guide() -> ui.Tag:
+    """Collapsible reading guide: where to start, then a glossary per section."""
+    start = ui.accordion_panel(
+        ui.span(icon("compass", "me-2"), "Start here: how to read this tab"),
+        ui.div(
+            "Think of this tab as a health check on each company. Work through the sections in this order:",
+            class_="mb-2",
+        ),
+        ui.tags.ol(*[ui.tags.li(ui.tags.b(f"{name}. "), text) for name, text in READING_ORDER]),
+        ui.div("Keep in mind", class_="sidebar-section mt-3"),
+        ui.tags.ul(*[ui.tags.li(text) for text in GUIDE_CAVEATS]),
+        ui.div(
+            "Tip: hover any metric name in the tables below for a one-line definition, or open the glossary panels here "
+            "for what it means and how to read it.",
+            class_="section-sub",
+        ),
+        value="start",
+    )
+    panels = []
+    for title, rows in SECTIONS:
+        head = ui.tags.tr(ui.tags.th("Metric"), ui.tags.th("What it is"), ui.tags.th("How to read it"))
+        body = [
+            ui.tags.tr(
+                ui.tags.td(label, class_="fw-semibold"),
+                ui.tags.td(GLOSSARY[label][0]),
+                ui.tags.td(GLOSSARY[label][1]),
+            )
+            for label, *_ in rows
+        ]
+        panels.append(
+            ui.accordion_panel(
+                ui.span(icon(SECTION_ICONS.get(title, "list-ul"), "me-2"), f"Glossary: {title}"),
+                ui.div(SECTION_INTRO[title], class_="section-sub mb-2"),
+                ui.div(
+                    ui.tags.table(ui.tags.thead(head), ui.tags.tbody(*body), class_="table fundamentals-table glossary-table"),
+                    class_="table-responsive",
+                ),
+                value=f"glossary-{title}",
+            )
+        )
+    return ui.accordion(start, *panels, id="fin_guide", open="start", multiple=False, class_="mb-3")
+
+
 app_ui = ui.page_sidebar(
     ui.sidebar(
         ui.input_text("tickers", "Tickers", value="AAPL, MSFT, NVDA", placeholder="AAPL, MSFT"),
@@ -236,7 +280,12 @@ app_ui = ui.page_sidebar(
         ui.nav_panel(
             ui.span(icon("bar-chart-line", "me-1"), "Overview"),
             ui.card(
-                card_header("graph-up", "Growth of $100", "Each ticker rebased to $100 on its first day in the period"),
+                card_header(
+                    "graph-up",
+                    f"Growth of ${START_VALUE:,}",
+                    f"What ${START_VALUE:,} invested in each ticker on the first day of the period would be worth since — "
+                    "price change plus reinvested dividends, before taxes and fees",
+                ),
                 output_widget("growth_chart"),
                 full_screen=True,
             ),
@@ -313,9 +362,15 @@ app_ui = ui.page_sidebar(
         ),
         ui.nav_panel(
             ui.span(icon("receipt", "me-1"), "Financials"),
+            financials_guide(),
             ui.layout_columns(ui.input_select("fin_ticker", "Chart ticker", choices=[]), col_widths=(4,)),
             ui.card(
-                card_header("bar-chart", "Revenue, net income & free cash flow", "Annual, by fiscal year"),
+                card_header(
+                    "bar-chart",
+                    "Revenue, net income & free cash flow",
+                    "Annual. Revenue = total sales; net income = profit after all costs; free cash flow = cash left "
+                    "after capital spending. Healthy companies show all three rising together.",
+                ),
                 output_widget("financials_chart"),
                 ui.output_ui("financials_note"),
                 full_screen=True,
@@ -435,19 +490,19 @@ def server(input, output, session):
     def growth_chart():
         closes = analysis()["closes"]
         req(not closes.empty)
-        rebased = rebase_to_100(closes)
+        rebased = rebase(closes)
         fig = go.Figure()
         for i, ticker in enumerate(rebased.columns):
             series = rebased[ticker].dropna()
-            change = series.iloc[-1] - 100
+            change = series.iloc[-1] / START_VALUE - 1
             fig.add_scatter(
                 x=series.index,
                 y=series,
-                name=f"{ticker} ({change:+.1f}%)",
+                name=f"{ticker} ({change:+.1%})",
                 line={"color": PALETTE[i % len(PALETTE)], "width": 2},
                 hovertemplate=f"{ticker}: $%{{y:,.2f}}<extra></extra>",
             )
-        fig.add_hline(y=100, line_dash="dot", line_color="#9aa3b8")
+        fig.add_hline(y=START_VALUE, line_dash="dot", line_color="#9aa3b8")
         return _style_figure(fig)
 
     @render.ui
@@ -828,14 +883,14 @@ def server(input, output, session):
         for title, rows in sections:
             body = [
                 ui.tags.tr(
-                    ui.tags.td(label),
+                    ui.tags.td(label, title=f"{GLOSSARY[label][0]} {GLOSSARY[label][1]}", class_="has-tip"),
                     *[ui.tags.td(text, class_=f"flag-{flag}" if flag else "") for text, flag in cells],
                 )
                 for label, cells in rows
             ]
             cards.append(
                 ui.card(
-                    card_header(SECTION_ICONS.get(title, "list-ul"), title),
+                    card_header(SECTION_ICONS.get(title, "list-ul"), title, SECTION_INTRO[title]),
                     ui.div(
                         ui.tags.table(ui.tags.thead(head), ui.tags.tbody(*body), class_="table fundamentals-table"),
                         class_="table-responsive",

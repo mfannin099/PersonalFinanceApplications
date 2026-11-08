@@ -111,3 +111,11 @@ body { background: var(--bg); color: var(--ink); -webkit-font-smoothing: antiali
 .ml-explainer li { margin-bottom: 0.8rem; }
 .ml-explainer ul { color: var(--muted); margin-top: 0.3rem; }
 .ml-explainer code { font-size: 0.8rem; }
+
+/* ---------- Financials guide ---------- */
+.fundamentals-table td.has-tip { cursor: help; text-decoration: underline dotted var(--line); text-underline-offset: 3px; }
+.glossary-table td { vertical-align: top; font-size: 0.86rem; }
+.glossary-table td:first-child { min-width: 11rem; color: var(--ink); }
+.glossary-table td:nth-child(2) { color: var(--ink); }
+.glossary-table td:nth-child(3) { color: var(--muted); }
+.accordion-button:not(.collapsed) { background: #f7f8fc; color: var(--brand); box-shadow: none; }

@@ -177,7 +177,7 @@ per folder, run separately).
     Prices are fetched only on "Run analysis" (`@reactive.event(input.run,
     ignore_none=False)`, so it also runs once on load); MA type/windows and
     forecast horizon recompute live on the loaded data. Overview tab: growth
-    of $100 chart + fundamentals table. Forecast tab: per-ticker value
+    of $1,000 chart + fundamentals table. Forecast tab: per-ticker value
     boxes, price + short/long MA chart with crossover markers and the trend
     forecast/band, and a recent-crossovers table. The sidebar settings use
     plain-language labels (Fast/Slow average, Project ahead) with a hint
@@ -202,6 +202,11 @@ per folder, run separately).
     denominators give NaN, not inf), and `investor_metrics(infos, annuals)`
     returns grouped `(label, [(text, cue)])` rows per ticker, preferring
     Yahoo's trailing `info` figure and falling back to the latest fiscal year.
+    Also holds the reading guide shown on the Financials tab: `GLOSSARY`
+    (metric -> what it is / how to read it; a test keeps it in sync with the
+    metric rows in `SECTIONS`), `SECTION_INTRO`, `READING_ORDER` and
+    `GUIDE_CAVEATS`. Cue thresholds quoted in the glossary must match the
+    rules in `SECTIONS`.
     Self-contained (own formatters) so it imports the same way locally and in
     tests. The health cues are rule-of-thumb thresholds, not advice.
   - `ml_forecast.py` — pure: a small XGBoost model (button-triggered "ML
@@ -225,7 +230,7 @@ per folder, run separately).
     `info` dict into a metric x ticker table, `—` for missing fields.
     Note yfinance 1.x reports `dividendYield` already as a percent (0.33 =
     0.33%) but `profitMargins` as a fraction.
-  - `market_data.py` — `parse_tickers`/`rebase_to_100` are pure;
+  - `market_data.py` — `parse_tickers`/`rebase` (to `START_VALUE` = $1,000) are pure;
     `fetch_closes`/`fetch_info`/`fetch_statements` hit Yahoo and are `lru_cache`d keyed by
     today's date. Unknown tickers come back from Yahoo as all-NaN columns,
     not errors, so `fetch_closes` drops and reports them.
