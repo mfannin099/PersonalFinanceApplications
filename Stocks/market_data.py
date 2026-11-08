@@ -82,3 +82,26 @@ def _info(ticker: str, _day: date) -> dict:
 def fetch_info(ticker: str) -> dict:
     """Yahoo's company info for ``ticker``; an empty dict if it can't be fetched."""
     return _info(ticker, date.today())
+
+
+@lru_cache(maxsize=64)
+def _statements(ticker: str, _day: date) -> dict[str, pd.DataFrame]:
+    stock = yf.Ticker(ticker)
+    out = {}
+    for key, attr in (("income", "income_stmt"), ("balance", "balance_sheet"), ("cashflow", "cashflow")):
+        try:
+            out[key] = getattr(stock, attr)
+        except Exception:  # best-effort, like fetch_info: one failing statement shouldn't blank the rest
+            out[key] = pd.DataFrame()
+        if out[key] is None:
+            out[key] = pd.DataFrame()
+    return out
+
+
+def fetch_statements(ticker: str) -> dict[str, pd.DataFrame]:
+    """Annual ``income``, ``balance`` and ``cashflow`` statements (rows = items, columns = fiscal year ends).
+
+    Treat the returned frames as read-only — they're shared through the cache.
+    Any statement Yahoo can't provide is an empty frame.
+    """
+    return _statements(ticker, date.today())

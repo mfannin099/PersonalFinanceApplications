@@ -120,3 +120,89 @@ def test_rebase_to_100_uses_each_columns_first_price():
     rebased = rebase_to_100(closes)
     assert rebased["X"].tolist() == [100.0, 150.0]
     assert rebased["Y"].iloc[1] == 100.0
+
+
+# --- financials ----------------------------------------------------------------
+
+from Stocks.financials import BAD, GOOD, MISSING as FIN_MISSING, annual_table, investor_metrics  # noqa: E402
+
+
+def _stmt(**rows) -> pd.DataFrame:
+    """A yfinance-style statement: rows = items, columns = fiscal year ends, newest first."""
+    dates = pd.to_datetime(["2025-09-30", "2024-09-30", "2023-09-30"])
+    return pd.DataFrame(rows, index=dates).T
+
+
+INCOME = _stmt(
+    **{
+        "Total Revenue": [200.0, 150.0, 100.0],
+        "Gross Profit": [100.0, 60.0, 40.0],
+        "Operating Income": [50.0, 30.0, 10.0],
+        "EBIT": [50.0, 30.0, 10.0],
+        "Net Income": [40.0, 20.0, 10.0],
+        "Interest Expense": [-10.0, -10.0, -10.0],
+        "Diluted Average Shares": [90.0, 95.0, 100.0],
+    }
+)
+BALANCE = _stmt(
+    **{"Total Debt": [80.0, 80.0, 80.0], "Stockholders Equity": [100.0, 80.0, 60.0], "Total Assets": [400.0, 300.0, 200.0]}
+)
+CASHFLOW = _stmt(**{"Free Cash Flow": [36.0, 18.0, 5.0], "Repurchase Of Capital Stock": [-30.0, -20.0, -10.0]})
+
+
+def test_annual_table_orders_oldest_first_and_computes_ratios():
+    table = annual_table(INCOME, BALANCE, CASHFLOW)
+    assert list(table.index.year) == [2023, 2024, 2025]
+    latest = table.iloc[-1]
+    assert latest["Gross margin"] == pytest.approx(0.5)
+    assert latest["Net margin"] == pytest.approx(0.2)
+    assert latest["Revenue growth"] == pytest.approx(200 / 150 - 1)
+    assert latest["Net income growth"] == pytest.approx(1.0)
+    assert latest["FCF conversion"] == pytest.approx(0.9)
+    assert latest["Interest coverage"] == pytest.approx(5.0)
+    assert latest["Debt/equity"] == pytest.approx(0.8)
+    assert latest["ROE"] == pytest.approx(0.4)
+    assert pd.isna(table.iloc[0]["Revenue growth"])
+
+
+def test_annual_table_handles_empty_and_missing_items():
+    assert annual_table(pd.DataFrame(), pd.DataFrame(), pd.DataFrame()).empty
+    table = annual_table(INCOME, pd.DataFrame(), pd.DataFrame())  # no balance sheet / cash flow
+    assert pd.isna(table.iloc[-1]["Debt/equity"]) and pd.isna(table.iloc[-1]["ROE"])
+    assert table.iloc[-1]["Net margin"] == pytest.approx(0.2)
+
+
+def test_annual_table_zero_denominators_give_nan_not_inf():
+    income = _stmt(**{"Total Revenue": [0.0, 0.0, 0.0], "Net Income": [5.0, 5.0, 5.0], "EBIT": [5.0, 5.0, 5.0],
+                      "Interest Expense": [0.0, 0.0, 0.0]})
+    table = annual_table(income, pd.DataFrame(), pd.DataFrame())
+    assert table["Net margin"].isna().all() and table["Interest coverage"].isna().all()
+
+
+def _cells(sections, label):
+    for _, rows in sections:
+        for row_label, cells in rows:
+            if row_label == label:
+                return cells
+    raise KeyError(label)
+
+
+def test_investor_metrics_formats_values_and_flags_health():
+    annual = annual_table(INCOME, BALANCE, CASHFLOW)
+    info = {"currentRatio": 0.8, "dividendYield": 0.5, "targetMeanPrice": 120.0, "currentPrice": 100.0}
+    sections = investor_metrics({"AAA": info}, {"AAA": annual})
+    assert _cells(sections, "Current ratio") == [("0.80", BAD)]
+    assert _cells(sections, "Interest coverage") == [("5.0x", GOOD)]
+    assert _cells(sections, "Net margin") == [("20.0%", GOOD)]
+    assert _cells(sections, "Revenue growth (last FY)")[0][0] == "+33.3%"
+    assert _cells(sections, "Share count change (years shown)") == [("-10.0%", GOOD)]
+    assert _cells(sections, "Upside to target") == [("+20.0%", GOOD)]
+    assert _cells(sections, "Dividend yield") == [("0.50%", None)]
+
+
+def test_investor_metrics_missing_data_shows_dash_without_cue():
+    sections = investor_metrics({"ZZZ": {}}, {"ZZZ": pd.DataFrame()})
+    assert _cells(sections, "P/E (trailing)") == [(FIN_MISSING, None)]
+    assert _cells(sections, "Revenue growth (last FY)") == [(FIN_MISSING, None)]
+    assert _cells(sections, "Recommendation") == [(FIN_MISSING, None)]
+    assert all(len(cells) == 1 for _, rows in sections for _, cells in rows)

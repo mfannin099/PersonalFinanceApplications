@@ -16,13 +16,33 @@ from pathlib import Path
 import pandas as pd
 import plotly.graph_objects as go
 from forecast import BAND_LABEL, MA_KINDS, crossovers, ma_trend_forecast, moving_average
+from financials import annual_table
+from financials import investor_metrics as investor_metrics_fn
 from fundamentals import fundamentals_table
-from market_data import MAX_TICKERS, PERIODS, fetch_closes, fetch_info, parse_tickers, rebase_to_100
+from market_data import (
+    MAX_TICKERS,
+    PERIODS,
+    fetch_closes,
+    fetch_info,
+    fetch_statements,
+    parse_tickers,
+    rebase_to_100,
+)
 from shiny import App, reactive, render, req, ui
 from shinywidgets import output_widget, render_widget
 
 HERE = Path(__file__).parent
 PALETTE = ["#3b5bdb", "#eb6834", "#1baf7a", "#ae3ec9", "#f08c00"]
+SECTION_ICONS = {
+    "Income statement": "receipt",
+    "Growth": "graph-up-arrow",
+    "Profitability": "percent",
+    "Valuation": "tag",
+    "Financial health": "shield-check",
+    "Cash flow": "cash-stack",
+    "Shareholder return": "piggy-bank",
+    "Analyst view": "megaphone",
+}
 INK, MUTED, GRID = "#1b2437", "#6b7489", "#eef0f7"
 BOOTSTRAP_ICONS = "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
 
@@ -73,14 +93,30 @@ app_ui = ui.page_sidebar(
         ui.input_action_button("run", "Run analysis", icon=icon("play-fill"), class_="btn-primary w-100"),
         ui.hr(),
         ui.div("Forecast settings", class_="sidebar-section"),
-        ui.input_radio_buttons("ma_kind", "Moving average", {k: k for k in MA_KINDS}, selected="SMA", inline=True),
+        ui.div("Two moving averages of the closing price drive the signals and the forecast below.", class_="hint"),
+        ui.input_radio_buttons("ma_kind", "Average type", {k: k for k in MA_KINDS}, selected="SMA", inline=True),
+        ui.div(
+            "SMA weighs every day equally. EMA weighs recent days more, so it reacts faster.", class_="hint"
+        ),
         ui.layout_columns(
-            ui.input_numeric("short_window", "Short window", 20, min=2),
-            ui.input_numeric("long_window", "Long window", 50, min=3),
+            ui.input_numeric("short_window", "Fast average (days)", 20, min=2),
+            ui.input_numeric("long_window", "Slow average (days)", 50, min=3),
             col_widths=(6, 6),
         ),
-        ui.input_slider("horizon", "Forecast horizon (trading days)", min=5, max=90, value=30),
-        ui.div("These update instantly — no need to re-run.", class_="hint"),
+        ui.div(
+            "Fast follows recent price moves; slow shows the longer trend and sets the forecast's slope. "
+            "A bullish signal is when fast crosses above slow.",
+            class_="hint",
+        ),
+        ui.div(
+            ui.input_action_button("preset_20_50", "20 / 50", class_="btn-outline-secondary btn-sm"),
+            ui.input_action_button("preset_50_200", "50 / 200", class_="btn-outline-secondary btn-sm"),
+            ui.input_action_button("reset_forecast", "Reset", class_="btn-outline-secondary btn-sm"),
+            class_="preset-row",
+        ),
+        ui.output_ui("window_warning"),
+        ui.input_slider("horizon", "Project ahead (trading days)", min=5, max=90, value=30),
+        ui.div("How far to extend the trend line. Settings update instantly — no need to re-run.", class_="hint"),
         width=310,
     ),
     ui.head_content(ui.tags.link(rel="stylesheet", href=BOOTSTRAP_ICONS), ui.include_css(HERE / "style.css")),
@@ -101,6 +137,31 @@ app_ui = ui.page_sidebar(
         ui.nav_panel(
             ui.span(icon("magic", "me-1"), "Forecast"),
             ui.layout_columns(ui.input_select("forecast_ticker", "Ticker", choices=[]), col_widths=(4,)),
+            ui.tags.details(
+                ui.tags.summary(icon("question-circle", "me-1"), "How the forecast works"),
+                ui.tags.ul(
+                    ui.tags.li(
+                        ui.tags.b("Crossovers: "),
+                        "when the fast average rises above the slow one, momentum is turning up (bullish); "
+                        "when it falls below, momentum is turning down (bearish).",
+                    ),
+                    ui.tags.li(
+                        ui.tags.b("Dashed line: "),
+                        "continues the slow average's recent slope, starting from the last close.",
+                    ),
+                    ui.tags.li(
+                        ui.tags.b("Shaded band: "),
+                        "where the price landed 80% of the time under the stock's recent volatility; "
+                        "it widens the further out you look.",
+                    ),
+                    ui.tags.li(
+                        ui.tags.b("Limits: "),
+                        "this is a simple trend extension, not a prediction. It can't anticipate earnings, "
+                        "news or market shocks.",
+                    ),
+                ),
+                class_="explainer",
+            ),
             ui.output_ui("forecast_summary"),
             ui.card(
                 card_header("activity", "Price, moving averages & forecast"),
@@ -112,6 +173,17 @@ app_ui = ui.page_sidebar(
                 card_header("signpost-split", "Moving-average crossovers", "Most recent first"),
                 ui.output_ui("crossover_table"),
             ),
+        ),
+        ui.nav_panel(
+            ui.span(icon("receipt", "me-1"), "Financials"),
+            ui.layout_columns(ui.input_select("fin_ticker", "Chart ticker", choices=[]), col_widths=(4,)),
+            ui.card(
+                card_header("bar-chart", "Revenue, net income & free cash flow", "Annual, by fiscal year"),
+                output_widget("financials_chart"),
+                ui.output_ui("financials_note"),
+                full_screen=True,
+            ),
+            ui.output_ui("investor_metrics"),
         ),
     ),
     ui.div(
@@ -160,9 +232,53 @@ def server(input, output, session):
         tickers = list(analysis()["closes"].columns)
         with reactive.isolate():
             current = input.forecast_ticker()
+        with reactive.isolate():
+            current_fin = input.fin_ticker()
         ui.update_select(
             "forecast_ticker", choices=tickers, selected=current if current in tickers else (tickers or [None])[0]
         )
+        ui.update_select(
+            "fin_ticker", choices=tickers, selected=current_fin if current_fin in tickers else (tickers or [None])[0]
+        )
+
+    @reactive.effect
+    @reactive.event(input.preset_20_50)
+    def _preset_20_50():
+        ui.update_numeric("short_window", value=20)
+        ui.update_numeric("long_window", value=50)
+
+    @reactive.effect
+    @reactive.event(input.preset_50_200)
+    def _preset_50_200():
+        ui.update_numeric("short_window", value=50)
+        ui.update_numeric("long_window", value=200)
+
+    @reactive.effect
+    @reactive.event(input.reset_forecast)
+    def _reset_forecast():
+        ui.update_numeric("short_window", value=20)
+        ui.update_numeric("long_window", value=50)
+        ui.update_radio_buttons("ma_kind", selected="SMA")
+        ui.update_slider("horizon", value=30)
+
+    @render.ui
+    def window_warning():
+        closes = analysis()["closes"]
+        long = input.long_window()
+        if closes.empty or not long:
+            return None
+        history = {t: int(closes[t].notna().sum()) for t in closes.columns}
+        short_ticker = min(history, key=history.get)
+        needed = 2 * long - 1  # the forecast fits the slow average's last `long` points, which need `long` days to start
+        if history[short_ticker] < needed:
+            return ui.div(
+                icon("exclamation-triangle", "me-1"),
+                f"{short_ticker} has {history[short_ticker]} days of history; a {long}-day slow average needs about "
+                f"{needed} days to draw the forecast (and {long + 1} for crossovers). Pick a longer lookback "
+                "or a shorter window.",
+                class_="window-warning",
+            )
+        return None
 
     @render.ui
     def status():
@@ -359,6 +475,93 @@ def server(input, output, session):
         ]
         head = ui.tags.tr(ui.tags.th("Date"), ui.tags.th("Signal"), ui.tags.th("At price", class_="text-end"))
         return ui.tags.table(ui.tags.thead(head), ui.tags.tbody(*rows), class_="table fundamentals-table mb-0")
+
+    # --- Financials -----------------------------------------------------------
+
+    @reactive.calc
+    def statements() -> dict:
+        """Per-ticker Yahoo info and annual statement tables for every loaded ticker."""
+        closes = analysis()["closes"]
+        req(not closes.empty)
+        infos, annuals = {}, {}
+        for ticker in closes.columns:
+            infos[ticker] = fetch_info(ticker)
+            stmts = fetch_statements(ticker)
+            annuals[ticker] = annual_table(stmts["income"], stmts["balance"], stmts["cashflow"])
+        return {"infos": infos, "annuals": annuals}
+
+    @render_widget
+    def financials_chart():
+        data = statements()
+        ticker = input.fin_ticker()
+        req(ticker in data["annuals"])
+        annual = data["annuals"][ticker]
+        fig = go.Figure()
+        if annual.empty:
+            fig.add_annotation(text="No statement data from Yahoo for this ticker.", showarrow=False)
+            return _style_figure(fig, height=360)
+        annual = annual.dropna(subset=["Revenue"])  # drop years with only partial line items
+        years = [f"FY{d.year}" for d in annual.index]
+        for col, color in (("Revenue", PALETTE[0]), ("Net income", PALETTE[2]), ("Free cash flow", PALETTE[1])):
+            fig.add_bar(
+                x=years, y=annual[col] / 1e9, name=col, marker_color=color,
+                hovertemplate=f"{col}: $%{{y:,.1f}}B<extra></extra>",
+            )
+        _style_figure(fig, height=360)
+        fig.update_layout(barmode="group")
+        fig.update_yaxes(ticksuffix="B")
+        return fig
+
+    @render.ui
+    def financials_note():
+        data = statements()
+        ticker = input.fin_ticker()
+        req(ticker in data["annuals"])
+        annual = data["annuals"][ticker]
+        req(not annual.empty)
+        margins = annual[["Gross margin", "Operating margin", "Net margin"]].iloc[-1]
+        parts = [f"{name.split()[0]} {value:.1%}" for name, value in margins.items() if pd.notna(value)]
+        text = f"Latest fiscal year (FY{annual.index[-1].year}) margins: " + ", ".join(parts) + "." if parts else ""
+        return ui.div(text, class_="section-sub px-3 pb-3") if text else None
+
+    @render.ui
+    def investor_metrics():
+        data = statements()
+        tickers = list(data["infos"])
+        sections = investor_metrics_fn(data["infos"], data["annuals"])
+        head = ui.tags.tr(
+            ui.tags.th("Metric"),
+            *[
+                ui.tags.th(ui.span(class_="dot", style=f"background:{PALETTE[i % len(PALETTE)]}"), t)
+                for i, t in enumerate(tickers)
+            ],
+        )
+        cards = []
+        for title, rows in sections:
+            body = [
+                ui.tags.tr(
+                    ui.tags.td(label),
+                    *[ui.tags.td(text, class_=f"flag-{flag}" if flag else "") for text, flag in cells],
+                )
+                for label, cells in rows
+            ]
+            cards.append(
+                ui.card(
+                    card_header(SECTION_ICONS.get(title, "list-ul"), title),
+                    ui.div(
+                        ui.tags.table(ui.tags.thead(head), ui.tags.tbody(*body), class_="table fundamentals-table"),
+                        class_="table-responsive",
+                    ),
+                )
+            )
+        legend = ui.div(
+            ui.span("healthy", class_="flag-chip flag-good"),
+            ui.span("worth a closer look", class_="flag-chip flag-bad"),
+            " — rule-of-thumb cues only; what's normal varies by industry. Figures are the latest fiscal year "
+            "or Yahoo's trailing-twelve-month data, whichever the metric uses.",
+            class_="section-sub mb-2",
+        )
+        return ui.TagList(legend, *cards)
 
 
 app = App(app_ui, server)

@@ -179,7 +179,15 @@ per folder, run separately).
     forecast horizon recompute live on the loaded data. Overview tab: growth
     of $100 chart + fundamentals table. Forecast tab: per-ticker value
     boxes, price + short/long MA chart with crossover markers and the trend
-    forecast/band, and a recent-crossovers table. Styling in
+    forecast/band, and a recent-crossovers table. The sidebar settings use
+    plain-language labels (Fast/Slow average, Project ahead) with a hint
+    under each, 20/50 · 50/200 · Reset buttons, a warning when the loaded
+    history is too short for the slow average (the forecast needs ~2x the
+    slow window), and a collapsible "How the forecast works" card. Financials
+    tab: annual revenue / net income / FCF bar chart for a chosen ticker, then
+    grouped comparison tables (Income statement, Growth, Profitability,
+    Valuation, Financial health, Cash flow, Shareholder return, Analyst view)
+    with rule-of-thumb green/red cues. Styling in
     `Stocks/style.css` mirrors Budget Studio's look.
   - `forecast.py` — pure: `moving_average` (SMA/EMA), `crossovers`
     (Bullish = short MA crosses above long), and `ma_trend_forecast`: daily
@@ -188,12 +196,20 @@ per folder, run separately).
     band from 60-day daily log-return volatility widening with sqrt(time).
     Future dates are business days (holidays not excluded). A simple,
     explainable trend projection, deliberately not a predictive model.
+  - `financials.py` — pure: `annual_table(income, balance, cashflow)` builds a
+    per-fiscal-year table from yfinance's statements (margins, growth, FCF
+    conversion, interest coverage, debt/equity, ROE/ROA/ROIC; zero
+    denominators give NaN, not inf), and `investor_metrics(infos, annuals)`
+    returns grouped `(label, [(text, cue)])` rows per ticker, preferring
+    Yahoo's trailing `info` figure and falling back to the latest fiscal year.
+    Self-contained (own formatters) so it imports the same way locally and in
+    tests. The health cues are rule-of-thumb thresholds, not advice.
   - `fundamentals.py` — pure: `fundamentals_table(infos)` formats Yahoo's
     `info` dict into a metric x ticker table, `—` for missing fields.
     Note yfinance 1.x reports `dividendYield` already as a percent (0.33 =
     0.33%) but `profitMargins` as a fraction.
   - `market_data.py` — `parse_tickers`/`rebase_to_100` are pure;
-    `fetch_closes`/`fetch_info` hit Yahoo and are `lru_cache`d keyed by
+    `fetch_closes`/`fetch_info`/`fetch_statements` hit Yahoo and are `lru_cache`d keyed by
     today's date. Unknown tickers come back from Yahoo as all-NaN columns,
     not errors, so `fetch_closes` drops and reports them.
 - `tests/` — pytest for `CreditCard/cleaning.py`, `CreditCard/categorize.py`,
