@@ -82,3 +82,25 @@ body { background: var(--bg); color: var(--ink); -webkit-font-smoothing: antiali
 
 /* ---------- Footer ---------- */
 .app-footer { text-align: center; color: var(--muted); font-size: 0.8rem; padding: 1rem 0 1.5rem; }
+
+/* ---------- Forecast settings & explainer ---------- */
+.preset-row { display: flex; gap: 0.4rem; margin-bottom: 0.9rem; }
+.preset-row .btn { border-radius: 0.5rem; font-weight: 600; }
+.window-warning {
+  background: #fff4e0; color: #8a5a00; border: 1px solid #f5d9a0; border-radius: 0.6rem;
+  font-size: 0.8rem; padding: 0.5rem 0.7rem; margin-bottom: 0.9rem;
+}
+.explainer {
+  background: #fff; border: 1px solid var(--line); border-radius: 0.8rem;
+  padding: 0.7rem 1rem; margin-bottom: 1rem; font-size: 0.88rem; color: var(--ink);
+}
+.explainer summary { cursor: pointer; font-weight: 600; color: var(--brand); }
+.explainer ul { margin: 0.6rem 0 0; padding-left: 1.2rem; color: var(--muted); }
+.explainer li { margin-bottom: 0.35rem; }
+
+/* ---------- Financial health cues ---------- */
+.fundamentals-table td.flag-good { color: #12805a; font-weight: 600; }
+.fundamentals-table td.flag-bad { color: #b42323; font-weight: 600; }
+.flag-chip { font-size: 0.72rem; font-weight: 600; padding: 0.15rem 0.55rem; border-radius: 99px; margin-right: 0.4rem; }
+.flag-chip.flag-good { background: #e3f7ee; color: #12805a; }
+.flag-chip.flag-bad { background: #fde4e4; color: #b42323; }
