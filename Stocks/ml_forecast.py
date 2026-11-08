@@ -36,6 +36,21 @@ PARAMS = {
 }
 FOLDS = 4
 MIN_TRAIN_ROWS = 150
+INNER_FOLDS = 3
+INNER_MIN_TRAIN_ROWS = 80
+# Bounds for user-adjustable hyper-parameters (the app's sliders use the same ranges).
+PARAM_BOUNDS = {
+    "max_depth": (1, 4),
+    "n_estimators": (50, 500),
+    "learning_rate": (0.01, 0.2),
+    "min_child_weight": (1, 50),
+    "subsample": (0.5, 1.0),
+    "colsample_bytree": (0.5, 1.0),
+    "reg_lambda": (0.0, 20.0),
+}
+# The only things auto-tune searches: tree depth and learning rate. Small on purpose —
+# every extra option searched is another chance to pick one that fits past noise by luck.
+TUNE_GRID = [{"max_depth": d, "learning_rate": lr} for d in (1, 2, 3) for lr in (0.02, 0.05)]
 FEATURE_WARMUP_DAYS = 63  # longest feature lookback
 BAND_QUANTILES = (0.10, 0.90)
 
@@ -73,35 +88,78 @@ def forward_return(close: pd.Series, horizon: int) -> pd.Series:
     return np.log(close.shift(-horizon) / close)
 
 
-def _fit(x: pd.DataFrame, y: pd.Series) -> XGBRegressor:
-    return XGBRegressor(**PARAMS).fit(x, y)
+def clean_params(overrides: dict | None) -> dict:
+    """``PARAMS`` with user overrides applied, clamped to ``PARAM_BOUNDS``; unknown keys are ignored."""
+    params = dict(PARAMS)
+    for key, value in (overrides or {}).items():
+        if key in PARAM_BOUNDS and value is not None:
+            low, high = PARAM_BOUNDS[key]
+            clamped = min(max(value, low), high)
+            params[key] = int(round(clamped)) if key in ("max_depth", "n_estimators", "min_child_weight") else float(clamped)
+    return params
 
 
-def walk_forward(x: pd.DataFrame, y: pd.Series, horizon: int, folds: int = FOLDS) -> pd.DataFrame:
+def _fit(x: pd.DataFrame, y: pd.Series, params: dict | None = None) -> XGBRegressor:
+    return XGBRegressor(**(params or PARAMS)).fit(x, y)
+
+
+def tune(x: pd.DataFrame, y: pd.Series, horizon: int, base: dict) -> dict:
+    """Pick the best ``TUNE_GRID`` entry by inner walk-forward error, using only ``x``/``y``.
+
+    Each candidate is scored on ``INNER_FOLDS`` blocks that are never in its training data.
+    Falls back to ``base`` unchanged when there's too little history to score candidates.
+    """
+    best, best_err = base, float("inf")
+    for candidate in TUNE_GRID:
+        trial = {**base, **candidate}
+        try:
+            oos = walk_forward(x, y, horizon, trial, folds=INNER_FOLDS, start_frac=0.5, min_train=INNER_MIN_TRAIN_ROWS)
+        except ValueError:
+            return base
+        err = float((oos["Actual"] - oos["Predicted"]).abs().mean())
+        if err < best_err:
+            best, best_err = trial, err
+    return best
+
+
+def walk_forward(
+    x: pd.DataFrame,
+    y: pd.Series,
+    horizon: int,
+    params: dict | None = None,
+    folds: int = FOLDS,
+    start_frac: float = 0.6,
+    min_train: int = MIN_TRAIN_ROWS,
+    auto_tune: bool = False,
+) -> pd.DataFrame:
     """Out-of-sample predictions from an expanding-window walk-forward.
 
-    The last 40% of rows is split into ``folds`` consecutive test blocks. Each block is
+    Rows after ``start_frac`` are split into ``folds`` consecutive test blocks. Each block is
     predicted by a model trained only on rows at least ``horizon`` days before it (the
-    purge gap), so no training target overlaps the period being tested.
+    purge gap), so no training target overlaps the period being tested. With ``auto_tune``,
+    hyper-parameters are chosen *inside each training window* (nested), never using the block
+    being tested — so tuning can't flatter the score.
 
     Returns ``Predicted``, ``Actual`` and ``Baseline`` (the training-window mean return,
     the "no skill" guess) indexed by date.
     """
+    params = params or PARAMS
     n = len(x)
-    first_test = int(n * 0.6)
-    edges = np.linspace(first_test, n, folds + 1, dtype=int)
+    edges = np.linspace(int(n * start_frac), n, folds + 1, dtype=int)
     parts = []
     for start, end in zip(edges[:-1], edges[1:], strict=True):
         train_end = start - horizon
-        if train_end < MIN_TRAIN_ROWS or end <= start:
+        if train_end < min_train or end <= start:
             continue
-        model = _fit(x.iloc[:train_end], y.iloc[:train_end])
+        x_train, y_train = x.iloc[:train_end], y.iloc[:train_end]
+        fold_params = tune(x_train, y_train, horizon, params) if auto_tune else params
+        model = _fit(x_train, y_train, fold_params)
         parts.append(
             pd.DataFrame(
                 {
                     "Predicted": model.predict(x.iloc[start:end]),
                     "Actual": y.iloc[start:end].to_numpy(),
-                    "Baseline": float(y.iloc[:train_end].mean()),
+                    "Baseline": float(y_train.mean()),
                 },
                 index=x.index[start:end],
             )
@@ -140,17 +198,32 @@ def verdict(metrics: dict) -> str:
     return "The model did not beat simple baselines out-of-sample — its prediction is not better than guessing."
 
 
-def train_and_forecast(close: pd.Series, horizon: int) -> dict:
+def train_and_forecast(
+    close: pd.Series,
+    horizon: int,
+    params: dict | None = None,
+    features: list[str] | None = None,
+    auto_tune: bool = False,
+) -> dict:
     """Validate, then fit on all data and project ``horizon`` trading days ahead.
 
-    Raises ``ValueError`` if there isn't enough history. The result holds the predicted
-    return/price and an empirical 80% band (from the out-of-sample errors, so it reflects
-    how wrong the model actually was), the walk-forward scorecard and predictions, and
-    gain-based feature importance.
+    ``params`` overrides the defaults (clamped to ``PARAM_BOUNDS``), ``features`` limits the
+    model to a subset of ``FEATURES``, and ``auto_tune`` searches ``TUNE_GRID`` (nested, so the
+    scorecard stays honest). Raises ``ValueError`` on too little history or no features.
+
+    The result holds the predicted return/price and an empirical 80% band (from the
+    out-of-sample errors, so it reflects how wrong the model actually was), the walk-forward
+    scorecard and predictions, gain-based feature importance, the settings used, and the
+    in-sample error — compare it with the out-of-sample error: a big gap means overfitting.
     """
     close = close.dropna()
     if horizon < 1:
         raise ValueError("Forecast horizon must be at least 1 day.")
+    features = [f for f in FEATURES if features is None or f in features]
+    if not features:
+        raise ValueError("Select at least one feature.")
+    base = clean_params(params)
+
     feats = build_features(close).dropna()
     target = forward_return(close, horizon)
     labelled = feats.join(target.rename("target")).dropna()
@@ -159,18 +232,19 @@ def train_and_forecast(close: pd.Series, horizon: int) -> dict:
             f"Only {len(labelled)} usable days after feature warm-up and a {horizon}-day horizon — "
             "choose a longer lookback (2+ years works best) or a shorter horizon."
         )
-    x, y = labelled[FEATURES], labelled["target"]
+    x, y = labelled[features], labelled["target"]
 
-    oos = walk_forward(x, y, horizon)
+    oos = walk_forward(x, y, horizon, base, auto_tune=auto_tune)
     metrics = score(oos)
 
-    model = _fit(x, y)  # final model sees everything that has a known outcome
-    latest = feats.iloc[[-1]]
+    final_params = tune(x, y, horizon, base) if auto_tune else base
+    model = _fit(x, y, final_params)  # final model sees everything that has a known outcome
+    latest = feats[features].iloc[[-1]]
     predicted_return = float(model.predict(latest)[0])
     last_close = float(close.iloc[-1])
     lo_q, hi_q = np.quantile(oos["Actual"] - oos["Predicted"], BAND_QUANTILES)
 
-    gain = pd.Series(model.get_booster().get_score(importance_type="gain"), dtype=float).reindex(FEATURES).fillna(0)
+    gain = pd.Series(model.get_booster().get_score(importance_type="gain"), dtype=float).reindex(features).fillna(0)
     importance = gain / gain.sum() if gain.sum() > 0 else gain
     return {
         "horizon": horizon,
@@ -183,7 +257,11 @@ def train_and_forecast(close: pd.Series, horizon: int) -> dict:
         "target_date": close.index[-1] + pd.offsets.BDay(horizon),
         "metrics": metrics,
         "verdict": verdict(metrics),
+        "train_mae": float((y - model.predict(x)).abs().mean()),
         "oos": oos,
         "importance": importance.sort_values(ascending=False),
         "n_rows": int(len(labelled)),
+        "features": features,
+        "params": {k: final_params[k] for k in PARAM_BOUNDS},
+        "auto_tuned": auto_tune,
     }

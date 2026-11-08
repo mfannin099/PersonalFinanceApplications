@@ -273,3 +273,39 @@ def test_model_finds_planted_signal_in_noise():
     close = pd.Series(100 * np.exp(np.cumsum(ret)), index=pd.bdate_range("2019-01-01", periods=n))
     res = train_and_forecast(close, 5)
     assert res["metrics"]["skill"] > 0 and res["metrics"]["correlation"] > 0
+
+
+# --- ML tuning, feature selection -----------------------------------------------
+
+from Stocks.ml_forecast import PARAM_BOUNDS, PARAMS, TUNE_GRID, clean_params  # noqa: E402
+
+
+def test_clean_params_clamps_overrides_and_ignores_unknown_keys():
+    cleaned = clean_params({"max_depth": 99, "learning_rate": 5, "reg_lambda": -3, "bogus": 1, "subsample": None})
+    assert cleaned["max_depth"] == PARAM_BOUNDS["max_depth"][1]
+    assert cleaned["learning_rate"] == PARAM_BOUNDS["learning_rate"][1]
+    assert cleaned["reg_lambda"] == 0
+    assert cleaned["subsample"] == PARAMS["subsample"] and "bogus" not in cleaned
+    assert isinstance(clean_params({"n_estimators": 120.7})["n_estimators"], int)
+    assert clean_params(None) == PARAMS
+
+
+def test_feature_subset_limits_model_inputs_and_requires_at_least_one():
+    close = _random_walk()
+    res = train_and_forecast(close, 20, features=["mom_21", "vol_21"])
+    assert res["features"] == ["mom_21", "vol_21"] and set(res["importance"].index) == {"mom_21", "vol_21"}
+    with pytest.raises(ValueError, match="at least one feature"):
+        train_and_forecast(close, 20, features=[])
+
+
+def test_custom_params_are_used_and_reported():
+    res = train_and_forecast(_random_walk(), 20, params={"max_depth": 3, "n_estimators": 80})
+    assert res["params"]["max_depth"] == 3 and res["params"]["n_estimators"] == 80 and not res["auto_tuned"]
+    assert res["train_mae"] >= 0
+
+
+def test_auto_tune_picks_from_the_grid_and_leaves_other_params_alone():
+    res = train_and_forecast(_random_walk(900), 10, auto_tune=True)
+    assert res["auto_tuned"]
+    assert {"max_depth": res["params"]["max_depth"], "learning_rate": res["params"]["learning_rate"]} in TUNE_GRID
+    assert res["params"]["min_child_weight"] == PARAMS["min_child_weight"]

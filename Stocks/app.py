@@ -19,7 +19,7 @@ from forecast import BAND_LABEL, MA_KINDS, crossovers, ma_trend_forecast, moving
 from financials import annual_table
 from financials import investor_metrics as investor_metrics_fn
 from fundamentals import fundamentals_table
-from ml_forecast import FEATURE_GROUPS, FOLDS, PARAMS, train_and_forecast
+from ml_forecast import FEATURE_GROUPS, FOLDS, PARAM_BOUNDS, PARAMS, TUNE_GRID, train_and_forecast
 from market_data import (
     MAX_TICKERS,
     PERIODS,
@@ -131,6 +131,65 @@ def ml_explainer() -> ui.Tag:
     )
 
 
+def ml_settings() -> ui.Tag:
+    """Collapsible tuning panel: feature selection, hyper-parameters and auto-tune."""
+    lo, hi = PARAM_BOUNDS, PARAM_BOUNDS
+
+    def slider(id_, label, key, step, help_):
+        return ui.div(
+            ui.input_slider(id_, label, min=lo[key][0], max=hi[key][1], value=PARAMS[key], step=step),
+            ui.div(help_, class_="hint"),
+        )
+
+    features = [
+        ui.input_checkbox_group(f"ml_feat_{i}", name, choices=cols, selected=cols, inline=True)
+        for i, (name, cols) in enumerate(FEATURE_GROUPS.items())
+    ]
+    return ui.accordion(
+        ui.accordion_panel(
+            ui.span(icon("sliders", "me-2"), "Model settings (optional)"),
+            ui.layout_columns(
+                ui.div(
+                    ui.div("Features", class_="sidebar-section"),
+                    ui.div("Untick anything you don't want the model to see.", class_="hint"),
+                    *features,
+                ),
+                ui.div(
+                    ui.div("Hyper-parameters", class_="sidebar-section"),
+                    slider("ml_depth", "Tree depth", "max_depth", 1, "Deeper trees capture more feature interactions but memorise noise faster."),
+                    slider("ml_trees", "Number of trees", "n_estimators", 10, "More trees fit the training data harder."),
+                    slider("ml_lr", "Learning rate", "learning_rate", 0.01, "How much each tree corrects the last. Lower is gentler and usually safer."),
+                    slider("ml_minchild", "Min. leaf weight", "min_child_weight", 1, "Higher forces each split to rest on more days."),
+                ),
+                ui.div(
+                    ui.div("Regularisation", class_="sidebar-section"),
+                    slider("ml_subsample", "Row sampling", "subsample", 0.05, "Share of days each tree sees. Below 1 adds useful randomness."),
+                    slider("ml_colsample", "Feature sampling", "colsample_bytree", 0.05, "Share of features each tree sees."),
+                    slider("ml_lambda", "L2 penalty", "reg_lambda", 0.5, "Shrinks leaf values toward zero; higher is more conservative."),
+                    ui.input_switch("ml_autotune", "Auto-tune depth & learning rate", value=False),
+                    ui.div(
+                        f"Tries {len(TUNE_GRID)} combinations (depth 1–3 × learning rate 0.02/0.05) using only data before each "
+                        "test block, so the scorecard stays honest. Overrides the two sliders above. Slower.",
+                        class_="hint",
+                    ),
+                    ui.input_action_button("ml_reset", "Reset to defaults", class_="btn-outline-secondary btn-sm"),
+                ),
+                col_widths=(4, 4, 4),
+            ),
+            ui.div(
+                icon("exclamation-triangle", "me-1"),
+                "More flexible settings (deeper, more trees, higher learning rate) fit the past better — and usually "
+                "forecast the future worse. Judge changes by the out-of-sample skill, not the in-sample fit.",
+                class_="window-warning mb-0",
+            ),
+            value="settings",
+        ),
+        id="ml_settings_acc",
+        open=False,
+        class_="mb-3",
+    )
+
+
 app_ui = ui.page_sidebar(
     ui.sidebar(
         ui.input_text("tickers", "Tickers", value="AAPL, MSFT, NVDA", placeholder="AAPL, MSFT"),
@@ -238,6 +297,7 @@ app_ui = ui.page_sidebar(
                 ),
                 col_widths=(4, 4),
             ),
+            ml_settings(),
             ui.output_ui("ml_status"),
             ui.output_ui("ml_summary"),
             ui.card(
@@ -571,9 +631,36 @@ def server(input, output, session):
         with ui.Progress(min=0, max=1) as progress:
             progress.set(0.3, message=f"Training XGBoost on {ticker}…", detail="Walk-forward validation, then a final fit")
             try:
-                return {"ticker": ticker, "error": None, **train_and_forecast(closes[ticker], input.horizon())}
+                selected = [f for i in range(len(FEATURE_GROUPS)) for f in input[f"ml_feat_{i}"]()]
+                overrides = {
+                    "max_depth": input.ml_depth(),
+                    "n_estimators": input.ml_trees(),
+                    "learning_rate": input.ml_lr(),
+                    "min_child_weight": input.ml_minchild(),
+                    "subsample": input.ml_subsample(),
+                    "colsample_bytree": input.ml_colsample(),
+                    "reg_lambda": input.ml_lambda(),
+                }
+                forecast = train_and_forecast(
+                    closes[ticker], input.horizon(), overrides, selected, auto_tune=input.ml_autotune()
+                )
+                return {"ticker": ticker, "error": None, **forecast}
             except ValueError as exc:
                 return {"error": str(exc)}
+
+    @reactive.effect
+    @reactive.event(input.ml_reset)
+    def _ml_reset():
+        for i, cols in enumerate(FEATURE_GROUPS.values()):
+            ui.update_checkbox_group(f"ml_feat_{i}", selected=cols)
+        ui.update_slider("ml_depth", value=PARAMS["max_depth"])
+        ui.update_slider("ml_trees", value=PARAMS["n_estimators"])
+        ui.update_slider("ml_lr", value=PARAMS["learning_rate"])
+        ui.update_slider("ml_minchild", value=PARAMS["min_child_weight"])
+        ui.update_slider("ml_subsample", value=PARAMS["subsample"])
+        ui.update_slider("ml_colsample", value=PARAMS["colsample_bytree"])
+        ui.update_slider("ml_lambda", value=PARAMS["reg_lambda"])
+        ui.update_switch("ml_autotune", value=False)
 
     @render.ui
     def ml_status():
@@ -595,6 +682,7 @@ def server(input, output, session):
         req(not res.get("error"))
         m = res["metrics"]
         change = res["predicted_return"]
+        p = res["params"]
         return ui.TagList(
             ui.layout_columns(
                 _value_box(
@@ -625,6 +713,15 @@ def server(input, output, session):
                 fill=False,
             ),
             ui.div(icon("info-circle", "me-2"), res["verdict"], class_="alert alert-secondary"),
+            ui.div(
+                ui.tags.b("Settings used: "),
+                f"depth {p['max_depth']}, {p['n_estimators']} trees, learning rate {p['learning_rate']:g}, "
+                f"min leaf weight {p['min_child_weight']}, row sampling {p['subsample']:g}, feature sampling "
+                f"{p['colsample_bytree']:g}, L2 {p['reg_lambda']:g}"
+                + (" (depth and learning rate auto-tuned)" if res["auto_tuned"] else "")
+                + f" · {len(res['features'])} of {len([f for cols in FEATURE_GROUPS.values() for f in cols])} features.",
+                class_="section-sub mb-3",
+            ),
         )
 
     @render.ui
@@ -637,6 +734,7 @@ def server(input, output, session):
             ("Model avg. error (MAE)", f"{m['mae_model']:.2%}"),
             ("Naive-guess avg. error", f"{m['mae_baseline']:.2%}"),
             ("Correlation, predicted vs. actual", f"{m['correlation']:+.2f}"),
+            ("In-sample error (days the model trained on)", f"{res['train_mae']:.2%}"),
             ("Training rows (final model)", f"{res['n_rows']:,}"),
         ]
         body = [ui.tags.tr(ui.tags.td(k), ui.tags.td(v, class_="text-end")) for k, v in rows]

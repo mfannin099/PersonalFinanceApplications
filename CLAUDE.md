@@ -212,6 +212,12 @@ per folder, run separately).
     tuning. Validated by expanding-window walk-forward with a `horizon`-day
     purge gap and scored vs. naive baselines (skill, hit rate vs. always-up,
     correlation); the 80% band is the empirical 10-90% quantile of OOS errors.
+    Tunable from a collapsible "Model settings" panel: feature on/off by group,
+    seven hyper-parameters (clamped to `PARAM_BOUNDS`), and an optional
+    **nested** auto-tune over a tiny grid (`TUNE_GRID`: depth 1-3 x learning
+    rate 0.02/0.05) — candidates are scored by inner walk-forward using only
+    each fold's training window, so tuning can't leak into the scorecard. The
+    scorecard also shows in-sample vs. out-of-sample error to expose overfit.
     On real stocks it usually shows no skill — that's the honest result and
     the UI says so. Needs `xgboost` + `scikit-learn`; on macOS also
     `brew install libomp` (XGBoost's OpenMP runtime).
