@@ -206,3 +206,70 @@ def test_investor_metrics_missing_data_shows_dash_without_cue():
     assert _cells(sections, "Revenue growth (last FY)") == [(FIN_MISSING, None)]
     assert _cells(sections, "Recommendation") == [(FIN_MISSING, None)]
     assert all(len(cells) == 1 for _, rows in sections for _, cells in rows)
+
+
+# --- ML forecast (XGBoost) -------------------------------------------------------
+
+from Stocks.ml_forecast import FEATURES, build_features, forward_return, train_and_forecast, walk_forward  # noqa: E402
+
+
+def _random_walk(n=700, seed=0) -> pd.Series:
+    rng = np.random.default_rng(seed)
+    return pd.Series(100 * np.exp(np.cumsum(rng.normal(0.0004, 0.01, n))), index=pd.bdate_range("2021-01-04", periods=n))
+
+
+def test_features_use_only_past_data():
+    close = _random_walk()
+    full = build_features(close)
+    truncated = build_features(close.iloc[:400])
+    common = truncated.dropna().index
+    pd.testing.assert_frame_equal(full.loc[common], truncated.loc[common])  # future prices don't change past features
+    assert list(full.columns) == FEATURES
+
+
+def test_forward_return_is_log_change_over_horizon():
+    close = _prices([100, 110, 121, 133.1])
+    fwd = forward_return(close, 2)
+    assert fwd.iloc[0] == pytest.approx(np.log(1.21))
+    assert fwd.iloc[-2:].isna().all()
+
+
+def test_walk_forward_trains_strictly_before_each_test_block_with_gap():
+    close = _random_walk()
+    feats = build_features(close).dropna()
+    data = feats.join(forward_return(close, 20).rename("t")).dropna()
+    oos = walk_forward(data[FEATURES], data["t"], horizon=20)
+    assert oos.index.is_monotonic_increasing and oos.index.is_unique
+    assert oos.index[0] > data.index[int(len(data) * 0.6) - 1]
+    assert {"Predicted", "Actual", "Baseline"} <= set(oos.columns)
+
+
+def test_train_and_forecast_returns_sane_result_and_is_deterministic():
+    close = _random_walk()
+    a, b = train_and_forecast(close, 20), train_and_forecast(close, 20)
+    assert a["predicted_return"] == pytest.approx(b["predicted_return"])
+    assert a["lower_price"] < a["predicted_price"] < a["upper_price"]
+    assert a["target_date"] > a["as_of"]
+    assert a["importance"].sum() == pytest.approx(1.0) and set(a["importance"].index) == set(FEATURES)
+    assert -1 <= a["metrics"]["hit_rate"] <= 1 and a["metrics"]["test_days"] > 0
+    assert isinstance(a["verdict"], str)
+
+
+def test_train_and_forecast_rejects_short_history_and_bad_horizon():
+    with pytest.raises(ValueError, match="longer lookback"):
+        train_and_forecast(_random_walk(150), 20)
+    with pytest.raises(ValueError):
+        train_and_forecast(_random_walk(), 0)
+
+
+def test_model_finds_planted_signal_in_noise():
+    """Sanity check the pipeline can learn: returns driven by 21-day momentum should score positive skill."""
+    rng = np.random.default_rng(1)
+    n = 1200
+    noise = rng.normal(0, 0.01, n)
+    ret = np.zeros(n)
+    for t in range(21, n):  # momentum: today's return follows the trailing 21-day drift
+        ret[t] = 0.95 * ret[t - 21 : t].mean() + noise[t]
+    close = pd.Series(100 * np.exp(np.cumsum(ret)), index=pd.bdate_range("2019-01-01", periods=n))
+    res = train_and_forecast(close, 5)
+    assert res["metrics"]["skill"] > 0 and res["metrics"]["correlation"] > 0

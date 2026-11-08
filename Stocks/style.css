@@ -104,3 +104,10 @@ body { background: var(--bg); color: var(--ink); -webkit-font-smoothing: antiali
 .flag-chip { font-size: 0.72rem; font-weight: 600; padding: 0.15rem 0.55rem; border-radius: 99px; margin-right: 0.4rem; }
 .flag-chip.flag-good { background: #e3f7ee; color: #12805a; }
 .flag-chip.flag-bad { background: #fde4e4; color: #b42323; }
+
+/* ---------- ML forecast ---------- */
+.ml-button { display: flex; align-items: end; height: 100%; padding-bottom: 1rem; }
+.ml-explainer ol { padding-left: 1.2rem; color: var(--ink); font-size: 0.9rem; }
+.ml-explainer li { margin-bottom: 0.8rem; }
+.ml-explainer ul { color: var(--muted); margin-top: 0.3rem; }
+.ml-explainer code { font-size: 0.8rem; }
