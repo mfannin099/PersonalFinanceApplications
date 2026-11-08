@@ -226,6 +226,18 @@ per folder, run separately).
     On real stocks it usually shows no skill — that's the honest result and
     the UI says so. Needs `xgboost` + `scikit-learn`; on macOS also
     `brew install libomp` (XGBoost's OpenMP runtime).
+  - `snapshot.py` — pure: `price_snapshot(closes)` (last price, day change,
+    period return, low/high and range position per ticker) and
+    `sparkline_points` (SVG polyline points), feeding the Overview's
+    quick-glance ticker cards.
+  - UI polish (see `style.css`'s "Polish pass"): tabs have ids
+    (`main_tabs`: overview/forecast/ml/financials) so the sidebar only shows
+    forecast settings on the tabs that use them; KPI tiles are custom
+    `.metric-card` divs (bslib's value_box stacked the icon above the text in
+    narrow cards); card headers stack title over subtitle; plotly toolbars
+    show on hover; comparison tables have sticky headers/first column; the
+    Financials guide is a collapsed `<details>`. `style.css` is inlined at
+    app start, so restart the server to see CSS edits.
   - `fundamentals.py` — pure: `fundamentals_table(infos)` formats Yahoo's
     `info` dict into a metric x ticker table, `—` for missing fields.
     Note yfinance 1.x reports `dividendYield` already as a percent (0.33 =

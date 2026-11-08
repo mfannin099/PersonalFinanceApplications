@@ -19,6 +19,7 @@ from forecast import BAND_LABEL, MA_KINDS, crossovers, ma_trend_forecast, moving
 from financials import GLOSSARY, GUIDE_CAVEATS, READING_ORDER, SECTION_INTRO, SECTIONS, annual_table
 from financials import investor_metrics as investor_metrics_fn
 from fundamentals import fundamentals_table
+from snapshot import price_snapshot, sparkline_points
 from ml_forecast import FEATURE_GROUPS, FOLDS, PARAM_BOUNDS, PARAMS, TUNE_GRID, train_and_forecast
 from market_data import (
     MAX_TICKERS,
@@ -46,6 +47,11 @@ SECTION_ICONS = {
     "Analyst view": "megaphone",
 }
 INK, MUTED, GRID = "#1b2437", "#6b7489", "#eef0f7"
+FAVICON = (
+    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' "
+    "fill='%233b5bdb'/%3E%3Cpath d='M6 22l6-7 5 4 9-11' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' "
+    "stroke-linejoin='round'/%3E%3C/svg%3E"
+)
 BOOTSTRAP_ICONS = "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
 
 
@@ -60,9 +66,17 @@ def card_header(glyph: str, title: str, subtitle: str = "") -> ui.Tag:
     )
 
 
-def _value_box(title: str, value: str, subtitle: str, glyph: str, **kwargs) -> ui.Tag:
-    return ui.value_box(
-        title, value, ui.span(subtitle, class_="vb-sub"), showcase=icon(glyph), showcase_layout="left center", **kwargs
+def _value_box(title: str, value: str, subtitle: str, glyph: str, class_: str = "") -> ui.Tag:
+    """A KPI tile: tinted icon beside a small label, a big number and a one-line note."""
+    return ui.div(
+        ui.div(icon(glyph), class_="metric-icon"),
+        ui.div(
+            ui.div(title, class_="metric-title"),
+            ui.div(value, class_="metric-value"),
+            ui.div(subtitle, class_="metric-sub"),
+            class_="metric-body",
+        ),
+        class_=f"metric-card {class_}".strip(),
     )
 
 
@@ -194,7 +208,7 @@ def ml_settings() -> ui.Tag:
 def financials_guide() -> ui.Tag:
     """Collapsible reading guide: where to start, then a glossary per section."""
     start = ui.accordion_panel(
-        ui.span(icon("compass", "me-2"), "Start here: how to read this tab"),
+        ui.span(icon("list-ol", "me-2"), "Start here: how to read this tab"),
         ui.div(
             "Think of this tab as a health check on each company. Work through the sections in this order:",
             class_="mb-2",
@@ -231,7 +245,16 @@ def financials_guide() -> ui.Tag:
                 value=f"glossary-{title}",
             )
         )
-    return ui.accordion(start, *panels, id="fin_guide", open="start", multiple=False, class_="mb-3")
+    accordion = ui.accordion(start, *panels, id="fin_guide", open="start", multiple=False, class_="guide-accordion")
+    return ui.tags.details(
+        ui.tags.summary(
+            icon("compass", "me-2"),
+            "New to financial statements? Open the guide",
+            ui.span("what each metric means and how to read it", class_="guide-sub"),
+        ),
+        accordion,
+        class_="guide-wrap",
+    )
 
 
 app_ui = ui.page_sidebar(
@@ -246,39 +269,53 @@ app_ui = ui.page_sidebar(
             ),
         ),
         ui.input_action_button("run", "Run analysis", icon=icon("play-fill"), class_="btn-primary w-100"),
-        ui.hr(),
-        ui.div("Forecast settings", class_="sidebar-section"),
-        ui.div("Two moving averages of the closing price drive the signals and the forecast below.", class_="hint"),
-        ui.input_radio_buttons("ma_kind", "Average type", {k: k for k in MA_KINDS}, selected="SMA", inline=True),
-        ui.div(
-            "SMA weighs every day equally. EMA weighs recent days more, so it reacts faster.", class_="hint"
+        ui.output_ui("data_stamp"),
+        ui.panel_conditional(
+            "input.main_tabs === 'forecast' || input.main_tabs === 'ml'",
+            ui.hr(),
+            ui.div(icon("sliders2", "me-2"), "Forecast settings", class_="sidebar-section"),
         ),
-        ui.layout_columns(
-            ui.input_numeric("short_window", "Fast average (days)", 20, min=2),
-            ui.input_numeric("long_window", "Slow average (days)", 50, min=3),
-            col_widths=(6, 6),
+        ui.panel_conditional(
+            "input.main_tabs === 'forecast'",
+            ui.div("Two moving averages of the closing price drive the signals and the forecast.", class_="hint"),
+            ui.input_radio_buttons("ma_kind", "Average type", {k: k for k in MA_KINDS}, selected="SMA", inline=True),
+            ui.div("SMA weighs every day equally. EMA weighs recent days more, so it reacts faster.", class_="hint"),
+            ui.layout_columns(
+                ui.input_numeric("short_window", "Fast average (days)", 20, min=2),
+                ui.input_numeric("long_window", "Slow average (days)", 50, min=3),
+                col_widths=(6, 6),
+            ),
+            ui.div(
+                "Fast follows recent price moves; slow shows the longer trend and sets the forecast's slope. "
+                "A bullish signal is when fast crosses above slow.",
+                class_="hint",
+            ),
+            ui.div(
+                ui.input_action_button("preset_20_50", "20 / 50", class_="btn-outline-secondary btn-sm"),
+                ui.input_action_button("preset_50_200", "50 / 200", class_="btn-outline-secondary btn-sm"),
+                ui.input_action_button("reset_forecast", "Reset", class_="btn-outline-secondary btn-sm"),
+                class_="preset-row",
+            ),
+            ui.output_ui("window_warning"),
         ),
-        ui.div(
-            "Fast follows recent price moves; slow shows the longer trend and sets the forecast's slope. "
-            "A bullish signal is when fast crosses above slow.",
-            class_="hint",
+        ui.panel_conditional(
+            "input.main_tabs === 'forecast' || input.main_tabs === 'ml'",
+            ui.input_slider("horizon", "Project ahead (trading days)", min=5, max=90, value=30),
+            ui.div("How far ahead to look. Updates instantly — no need to re-run.", class_="hint"),
         ),
-        ui.div(
-            ui.input_action_button("preset_20_50", "20 / 50", class_="btn-outline-secondary btn-sm"),
-            ui.input_action_button("preset_50_200", "50 / 200", class_="btn-outline-secondary btn-sm"),
-            ui.input_action_button("reset_forecast", "Reset", class_="btn-outline-secondary btn-sm"),
-            class_="preset-row",
-        ),
-        ui.output_ui("window_warning"),
-        ui.input_slider("horizon", "Project ahead (trading days)", min=5, max=90, value=30),
-        ui.div("How far to extend the trend line. Settings update instantly — no need to re-run.", class_="hint"),
         width=310,
     ),
-    ui.head_content(ui.tags.link(rel="stylesheet", href=BOOTSTRAP_ICONS), ui.include_css(HERE / "style.css")),
+    ui.head_content(
+        ui.tags.link(rel="stylesheet", href=BOOTSTRAP_ICONS),
+        ui.tags.link(rel="icon", href=FAVICON),
+        ui.tags.meta(name="viewport", content="width=device-width, initial-scale=1"),
+        ui.include_css(HERE / "style.css"),
+    ),
     ui.output_ui("status"),
     ui.navset_card_underline(
         ui.nav_panel(
             ui.span(icon("bar-chart-line", "me-1"), "Overview"),
+            ui.output_ui("snapshot_cards"),
             ui.card(
                 card_header(
                     "graph-up",
@@ -293,6 +330,7 @@ app_ui = ui.page_sidebar(
                 card_header("building", "Fundamentals", "Latest company figures from Yahoo Finance"),
                 ui.output_ui("fundamentals"),
             ),
+            value="overview",
         ),
         ui.nav_panel(
             ui.span(icon("magic", "me-1"), "Forecast"),
@@ -333,6 +371,7 @@ app_ui = ui.page_sidebar(
                 card_header("signpost-split", "Moving-average crossovers", "Most recent first"),
                 ui.output_ui("crossover_table"),
             ),
+            value="forecast",
         ),
         ui.nav_panel(
             ui.span(icon("cpu", "me-1"), "ML Forecast"),
@@ -359,6 +398,7 @@ app_ui = ui.page_sidebar(
                 card_header("book", "How this works", "The whole process, step by step"),
                 ml_explainer(),
             ),
+            value="ml",
         ),
         ui.nav_panel(
             ui.span(icon("receipt", "me-1"), "Financials"),
@@ -376,7 +416,9 @@ app_ui = ui.page_sidebar(
                 full_screen=True,
             ),
             ui.output_ui("investor_metrics"),
+            value="financials",
         ),
+        id="main_tabs",
     ),
     ui.div(
         icon("info-circle", "me-1"),
@@ -384,7 +426,11 @@ app_ui = ui.page_sidebar(
         "forecasts are simple trend projections, not predictions.",
         class_="app-footer",
     ),
-    title=ui.div(ui.span(icon("graph-up-arrow"), class_="brand-mark"), "Stock Studio", class_="brand"),
+    title=ui.div(
+        ui.span(icon("graph-up-arrow"), class_="brand-mark"),
+        ui.div("Stock Studio", ui.span("Research · Forecast · Learn", class_="brand-tagline"), class_="brand-text"),
+        class_="brand",
+    ),
     window_title="Stock Studio",
     fillable=False,
 )
@@ -483,6 +529,79 @@ def server(input, output, session):
         if error:
             return ui.div(icon("exclamation-triangle-fill", "me-2"), error, class_="alert alert-danger")
         return None
+
+    # --- Snapshot --------------------------------------------------------------
+
+    @render.ui
+    def data_stamp():
+        closes = analysis()["closes"]
+        if closes.empty:
+            return None
+        return ui.div(
+            icon("clock-history", "me-1"),
+            f"{closes.shape[1]} ticker{'s' if closes.shape[1] != 1 else ''} · prices through "
+            f"{closes.index[-1]:%b %d, %Y}",
+            class_="data-stamp",
+        )
+
+    @render.ui
+    def snapshot_cards():
+        closes = analysis()["closes"]
+        req(not closes.empty)
+        snap = price_snapshot(closes)
+        cards = []
+        for i, (ticker, row) in enumerate(snap.iterrows()):
+            color = PALETTE[i % len(PALETTE)]
+            day, period = row["Day change"], row["Period return"]
+            direction = "flat" if pd.isna(day) or day == 0 else ("up" if day > 0 else "down")
+            arrow = {"up": "caret-up-fill", "down": "caret-down-fill", "flat": "dash"}[direction]
+            pos = row["Range position"]
+            marker = (
+                ui.div(class_="range-marker", style=f"left:{pos * 100:.0f}%") if pd.notna(pos) else None
+            )
+            spark = sparkline_points(closes[ticker].dropna())
+            cards.append(
+                ui.div(
+                    ui.div(
+                        ui.span(class_="dot", style=f"background:{color}"),
+                        ui.span(ticker, class_="snap-ticker"),
+                        ui.span(
+                            icon(arrow, "me-1"),
+                            "—" if pd.isna(day) else f"{day:+.2%}",
+                            class_=f"snap-chip snap-{direction}",
+                            title="Change since the previous close",
+                        ),
+                        class_="snap-head",
+                    ),
+                    ui.div(f"${row['Last']:,.2f}", class_="snap-price"),
+                    ui.div(
+                        ui.span("Period ", class_="snap-label"),
+                        ui.span(
+                            "—" if pd.isna(period) else f"{period:+.1%}",
+                            class_="snap-up" if pd.notna(period) and period >= 0 else "snap-down",
+                        ),
+                        class_="snap-period",
+                    ),
+                    ui.HTML(
+                        f'<svg class="sparkline" viewBox="0 0 120 36" preserveAspectRatio="none" aria-hidden="true">'
+                        f'<polyline points="{spark}" fill="none" stroke="{color}" stroke-width="1.8" '
+                        f'stroke-linejoin="round" stroke-linecap="round"/></svg>'
+                    ),
+                    ui.div(
+                        ui.div(marker, class_="range-track"),
+                        ui.div(
+                            ui.span(f"${row['Low']:,.0f}"),
+                            ui.span("period range", class_="snap-label"),
+                            ui.span(f"${row['High']:,.0f}"),
+                            class_="range-labels",
+                        ),
+                        title="Where the latest price sits between the period's low and high",
+                    ),
+                    class_="snap-card",
+                )
+            )
+        return ui.div(*cards, class_="snap-grid")
+
 
     # --- Overview -------------------------------------------------------------
 
@@ -902,7 +1021,7 @@ def server(input, output, session):
             ui.span("worth a closer look", class_="flag-chip flag-bad"),
             " — rule-of-thumb cues only; what's normal varies by industry. Figures are the latest fiscal year "
             "or Yahoo's trailing-twelve-month data, whichever the metric uses.",
-            class_="section-sub mb-2",
+            class_="section-sub mt-3 mb-3",
         )
         return ui.TagList(legend, *cards)
 
