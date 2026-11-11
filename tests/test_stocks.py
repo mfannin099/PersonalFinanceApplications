@@ -212,7 +212,7 @@ def test_investor_metrics_missing_data_shows_dash_without_cue():
 
 # --- ML forecast (XGBoost) -------------------------------------------------------
 
-from Stocks.ml_forecast import FEATURES, build_features, forward_return, train_and_forecast, walk_forward  # noqa: E402
+from Stocks.ml_forecast import FEATURE_INFO, FEATURES, build_features, clean_ma, forward_return, train_and_forecast, walk_forward  # noqa: E402
 
 
 def _random_walk(n=700, seed=0) -> pd.Series:
@@ -359,3 +359,26 @@ def test_sparkline_points_scale_into_box_and_handle_degenerate_input():
     assert sparkline_points([5, 5, 5]).count(",") == 3  # flat series still draws a level line
     assert sparkline_points([1]) == "" and sparkline_points([]) == ""
     assert len(sparkline_points(range(500)).split()) == SPARK_POINTS
+
+
+def test_every_feature_has_an_explanation():
+    assert set(FEATURE_INFO) == set(FEATURES)
+    assert all(len(info) == 3 and all(info) for info in FEATURE_INFO.values())
+
+
+def test_moving_average_features_are_customizable():
+    close = _random_walk()
+    sma = build_features(close, {"kind": "SMA", "fast": 10, "slow": 30})
+    ema = build_features(close, {"kind": "EMA", "fast": 10, "slow": 30})
+    assert list(sma.columns) == FEATURES
+    expected = (close / close.rolling(10).mean() - 1).dropna()
+    pd.testing.assert_series_equal(sma["dist_ma_fast"].dropna(), expected, check_names=False)
+    assert not np.allclose(sma["dist_ma_fast"].dropna(), ema["dist_ma_fast"].dropna())
+    assert train_and_forecast(close, 20, ma={"kind": "EMA", "fast": 10, "slow": 30})["ma"]["kind"] == "EMA"
+
+
+def test_clean_ma_rejects_bad_settings():
+    assert clean_ma(None) == {"kind": "SMA", "fast": 20, "slow": 50}
+    for bad in ({"kind": "WMA"}, {"fast": 50, "slow": 50}, {"fast": 1}, {"slow": 500}):
+        with pytest.raises(ValueError):
+            clean_ma(bad)

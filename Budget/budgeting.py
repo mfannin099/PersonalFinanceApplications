@@ -14,7 +14,7 @@ from CreditCard.categorize import NEEDS_WANTS_MAP
 # always $0 in budget_vs_actual; they exist purely as budget targets.
 # ("Insurance" used to be here too, but it's now folded into the
 # "Bills & Utilities" line item below rather than budgeted separately.)
-NON_CARD_CATEGORIES = ["Rent/Mortgage", "Savings", "Debt Payments"]
+NON_CARD_CATEGORIES = ["Rent/Mortgage", "Savings", "Investing", "Debt Payments"]
 
 # CreditCard categories that aren't budget line items here: "Money out" is
 # a transfer, not spending, and "Fees & Adjustments" isn't something a user
@@ -93,7 +93,7 @@ WANTS_CARD = [_budget_label(c) for c in _ELIGIBLE_CARD_CATEGORIES if NEEDS_WANTS
 
 _NEEDS_BUCKET = NEEDS_CARD + ["Rent/Mortgage"]
 _WANTS_BUCKET = WANTS_CARD
-_SAVINGS_BUCKET = ["Savings", "Debt Payments"]
+_SAVINGS_BUCKET = ["Savings", "Investing", "Debt Payments"]
 
 # Relative weight of each category within whatever bucket it's split
 # across, loosely based on typical U.S. household expense shares (e.g.
@@ -115,6 +115,7 @@ CATEGORY_WEIGHTS: dict[str, float] = {
     "Travel": 4,
     "Personal": 4,
     "Savings": 12,
+    "Investing": 10,
     "Debt Payments": 8,
     "Uncategorized": 0,
 }

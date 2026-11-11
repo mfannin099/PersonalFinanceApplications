@@ -1,0 +1,31 @@
+/* Finance Hub additions — layered on top of Stocks/style.css (shared look). */
+.nav-underline .nav-link, .navbar .nav-link { font-weight: 600; }
+.bslib-page-navbar > .navbar .nav-link { color: rgba(255, 255, 255, 0.78) !important; }
+.bslib-page-navbar > .navbar .nav-link.active, .bslib-page-navbar > .navbar .nav-link:hover { color: #fff !important; }
+.bslib-page-navbar > .navbar .nav-link.active { border-bottom: 2px solid #fff; }
+.bslib-page-navbar > .navbar .navbar-toggler { background: rgba(255, 255, 255, 0.85); }
+.bslib-page-navbar > .tab-content { padding: 1rem 1.25rem; }
+.tab-content > .tab-pane > .bslib-sidebar-layout { margin: -0.25rem; }
+.hub-empty { text-align: center; padding: 3rem 1rem; color: var(--muted); }
+.hub-empty .empty-icon { font-size: 2.2rem; color: var(--brand); display: block; margin-bottom: 0.6rem; opacity: 0.7; }
+.chip-row { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.6rem; }
+.chip { display: inline-flex; align-items: center; gap: 0.4rem; background: #f4f6fb; border: 1px solid var(--line); border-radius: 999px; padding: 0.25rem 0.75rem; font-size: 0.82rem; }
+.chip .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; display: inline-block; }
+.signal-box { background: #fafbfe; border: 1px solid var(--line); border-radius: 0.8rem; padding: 0.9rem 1rem; }
+.summary-row { display: flex; flex-wrap: wrap; align-items: center; gap: 1.5rem; margin-bottom: 0.7rem; }
+.summary-row .metric-value { font-size: 1.25rem; }
+.meter { height: 8px; background: #eef0f7; border-radius: 999px; overflow: hidden; }
+.meter-fill { height: 100%; background: linear-gradient(90deg, var(--brand), var(--brand-2)); border-radius: 999px; }
+.meter-fill.over { background: #e03131; }
+.status-chip.status-good { background: #e6f7ef; color: #0f8a5f; }
+.status-chip.status-near { background: #fff4e0; color: #b26b00; }
+.status-chip.status-over { background: #fdeaea; color: #c92a2a; }
+.prog-row { margin-bottom: 0.9rem; }
+.prog { height: 9px; background: #eef0f7; border-radius: 999px; overflow: hidden; margin: 0.3rem 0 0.15rem; }
+.prog-fill { height: 100%; border-radius: 999px; }
+.prog-fill.ok { background: #1baf7a; }
+.prog-fill.near { background: #f08c00; }
+.prog-fill.over { background: #e03131; }
+.shiny-input-container:not(.shiny-input-container-inline) .form-label { margin-bottom: 0.25rem; }
+.signal-scroll { max-height: 320px; overflow-y: auto; }
+.signal-box .fundamentals-table td { color: var(--ink); }

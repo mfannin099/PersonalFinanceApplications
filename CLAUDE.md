@@ -1,9 +1,18 @@
 # PersonalFinanceApplications
 
-Personal finance tools. One `uv` project/venv at this root covers all
-sub-apps, but each folder is an independent app (Streamlit, Dash or Shiny) with its
-own `app.py` entry point — there is no shared nav shell by design (one app
-per folder, run separately).
+Personal finance tools. One `uv` project/venv at this root covers everything.
+
+**`FinanceHub/` is the final, recommended application** — a single Shiny for
+Python app (Home / Spending / Budget / Stocks) and the one to use as the
+personal finance hub. It was chosen over Streamlit and Dash because Shiny's
+reactive model suits the expensive, button-gated work (Yahoo fetches, XGBoost)
+and its modules let the three apps share one shell and one uploaded
+statement. `CreditCard/` (Streamlit), `Budget/` (Dash) and `Stocks/` (Shiny)
+remain as standalone apps with their own `app.py`, but they are now **legacy
+entry points**: their pure logic modules (`analytics`, `categorize`,
+`cleaning`, `budgeting`, `export`, `statement`, `forecast`, ...) are reused by
+the hub, so keep them, and put new features in the hub rather than extending
+the standalone UIs.
 
 ## Structure
 
@@ -70,9 +79,11 @@ per folder, run separately).
     `tests/test_budgeting.py`), parallel to `CreditCard/analytics.py`:
     - `BUDGET_CATEGORIES` — most of `CreditCard.categorize.CATEGORIES`
       reused verbatim (so a categorized card transaction maps into the
-      budget with no translation layer), plus three categories that never
-      appear on a card statement: `Rent/Mortgage`, `Savings`,
-      `Debt Payments`. Exceptions to "verbatim": `"Money out"` and
+      budget with no translation layer), plus four categories that never
+      appear on a card statement: `Rent/Mortgage`, `Savings`, `Investing`,
+      `Debt Payments` (`Investing` shares the 50/30/20 savings bucket, weight
+      10; under Pay Yourself First it's weighted in the remainder, not the
+      off-the-top savings). Exceptions to "verbatim": `"Money out"` and
       `"Fees & Adjustments"` are excluded entirely (not budget line items —
       see Notes below); `"Shopping"` is relabeled `"Misc Shopping"`; and
       `"Bills & Utilities"` is relabeled `"Bills & Utilities (+ Insurance)"`
@@ -103,10 +114,10 @@ per folder, run separately).
       against every other directly — `Savings` competes on the same
       footing as spending categories instead of a guaranteed 20% floor.
     - `budget_vs_actual` — budgeted vs. actual $ per category, with
-      variance/%-used/status, for driving the progress bars. The three
+      variance/%-used/status, for driving the progress bars. The four
       non-card categories never appear on a card statement, so their actual
       comes only from the optional user-entered `manual_actuals` argument
-      ({category: $}, 0 if missing). In `Budget/app.py` these are three `$`
+      ({category: $}, 0 if missing). In `Budget/app.py` these are four `$`
       inputs under "Manually tracked spending" at the top of the Budget vs.
       Actual card (session-only, like everything else); the rows show a
       "Manually entered" note and have no drill-down accordion item.
@@ -170,10 +181,11 @@ per folder, run separately).
 - `Stocks/` — "Stock Studio", a **Shiny for Python** app (replaced an
   earlier Streamlit "coming soon" placeholder). Multi-ticker (up to 5)
   price analysis from Yahoo Finance via `yfinance`.
-  - `app.py` — entry point, run with `uv run shiny run Stocks/app.py`.
-    Shiny puts `Stocks/` on `sys.path`, so it imports `forecast`/
-    `fundamentals`/`market_data` locally (like the Streamlit app); tests use
-    `Stocks.xxx`. Charts are Plotly via `shinywidgets` (`render_widget`).
+  - `studio.py` — the whole UI + server as a Shiny module (`stocks_ui`/
+    `stocks_server`), imported package-qualified (`Stocks.forecast`) and shared
+    by `app.py` and `FinanceHub`. `app.py` is a thin standalone shell
+    (`uv run shiny run Stocks/app.py`; puts the project root on `sys.path`).
+    The rest of this section describes the module's behaviour. Charts are Plotly via `shinywidgets` (`render_widget`).
     Prices are fetched only on "Run analysis" (`@reactive.event(input.run,
     ignore_none=False)`, so it also runs once on load); MA type/windows and
     forecast horizon recompute live on the loaded data. Overview tab: growth
@@ -212,8 +224,12 @@ per folder, run separately).
   - `ml_forecast.py` — pure: a small XGBoost model (button-triggered "ML
     Forecast" tab) predicting the **forward return** over the horizon, not the
     price (trees can't extrapolate price levels). Time-based features only
-    (lagged returns, momentum, volatility, distance from SMA20/50, day of
-    week/month). Fixed shallow params (`PARAMS`, depth 2) — deliberately no
+    (lagged returns, momentum, volatility, distance from a fast/slow moving
+    average, day of week/month). The moving-average features are customizable
+    (SMA or EMA, fast/slow windows, default SMA 20/50; `clean_ma`/`DEFAULT_MA`,
+    feature names `dist_ma_fast`/`dist_ma_slow`). `FEATURE_INFO` explains every
+    feature in plain language and feeds the "What each feature means" card
+    (with an Importance column after training) and the importance chart labels. Fixed shallow params (`PARAMS`, depth 2) — deliberately no
     tuning. Validated by expanding-window walk-forward with a `horizon`-day
     purge gap and scored vs. naive baselines (skill, hit rate vs. always-up,
     correlation); the 80% band is the empirical 10-90% quantile of OOS errors.
@@ -252,9 +268,33 @@ per folder, run separately).
     `fetch_closes`/`fetch_info`/`fetch_statements` hit Yahoo and are `lru_cache`d keyed by
     today's date. Unknown tickers come back from Yahoo as all-NaN columns,
     not errors, so `fetch_closes` drops and reports them.
+- `FinanceHub/` — the blended app: Spending + Budget + Stocks in one **Shiny
+  for Python** app (`uv run shiny run FinanceHub/app.py`). `page_navbar` with
+  Home / Spending / Budget / Stocks; each section is a Shiny module
+  (`@module.ui`/`@module.server`). `app.py` puts the project root on
+  `sys.path` and imports everything package-qualified.
+  - `shared.py` — `StatementState`: one uploaded statement (`cleaned`) and a
+    `categorized()` calc shared by Spending and Budget; saving a category
+    override calls `bump()` so both recompute. Also KPI/card/figure helpers.
+  - `home.py` — upload (via `Budget.statement.read_statement_csv` +
+    `clean_statement`), a synthetic "Try sample data" button, and the
+    category review (one "Save" button; only changed merchants are written to
+    the shared `merchant_overrides.json`).
+  - `spending.py` — the CreditCard dashboard ported to Plotly: filters,
+    Venmo splits (select rows in a data grid, then mark as split — replaces
+    Streamlit's editable table), the overview/weekday/over-time/category-over
+    -time charts, and Money Saving signals. Filters fall back to "everything"
+    until the (possibly collapsed) sidebar renders them.
+  - `signals.py` — pure `savings_signals` (the four signals + recommendations)
+    and `sample_statement`; tested in `tests/test_hub.py`.
+  - `budget.py` — the Budget Studio planner ported: income/Gross-Net, preset
+    suggestions into per-category numeric inputs (replace-confirm modal),
+    manual actuals, progress rows + chart on the last 30 days, CSV/PDF export.
+    Reuses `Budget.budgeting`/`Budget.export` unchanged. Session-only.
+  - Stocks is mounted from `Stocks/studio.py` (see below).
 - `tests/` — pytest for `CreditCard/cleaning.py`, `CreditCard/categorize.py`,
   `CreditCard/analytics.py`, `Budget/budgeting.py`, `Budget/export.py`,
-  `Budget/statement.py`, and `Stocks/`'s pure modules (`tests/test_stocks.py`,
+  `Budget/statement.py`, `FinanceHub/signals.py` (`tests/test_hub.py`), and `Stocks/`'s pure modules (`tests/test_stocks.py`,
   synthetic data only — never the network) (imported there via
   the `CreditCard.`/`Budget.` package paths, since pytest runs from the
   project root — only each Streamlit app's own `app.py` uses local imports;
@@ -267,6 +307,8 @@ historical reference but is no longer maintained.
 ## Running
 
 ```bash
+uv run shiny run FinanceHub/app.py   # the main app: Finance Hub (Shiny)
+# Legacy standalone apps:
 uv run streamlit run CreditCard/app.py
 uv run python -m Budget.app   # Dash, not Streamlit — see Structure above
 uv run shiny run Stocks/app.py   # Shiny for Python

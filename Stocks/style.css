@@ -16,7 +16,8 @@
 body { background: var(--bg); color: var(--ink); -webkit-font-smoothing: antialiased; }
 
 /* ---------- Header ---------- */
-.bslib-page-sidebar > .navbar {
+.bslib-page-sidebar > .navbar,
+.bslib-page-navbar > .navbar {
   background: linear-gradient(120deg, var(--brand) 0%, var(--brand-2) 100%) !important;
   border: 0 !important;
 }
@@ -259,3 +260,7 @@ h1, h2, h3, h4, h5 { letter-spacing: -0.015em; }
 
 /* KPI rows: as many tiles per row as fit, instead of squeezing four into a narrow pane. */
 .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+
+/* ML feature guide */
+.guide-group { background: #f7f8fc; font-weight: 600; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.feature-off { opacity: 0.5; }
