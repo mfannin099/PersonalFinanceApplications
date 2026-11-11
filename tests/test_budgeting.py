@@ -37,7 +37,7 @@ def test_50_30_20_bucket_sums():
     wants = df[df["Category"].isin(["Food & Drink", "Entertainment", "Misc Shopping", "Travel", "Personal"])][
         "Budgeted Amount"
     ].sum()
-    savings = df[df["Category"].isin(["Savings", "Debt Payments"])]["Budgeted Amount"].sum()
+    savings = df[df["Category"].isin(["Savings", "Investing", "Debt Payments"])]["Budgeted Amount"].sum()
 
     assert needs == pytest.approx(0.50 * INCOME, abs=0.1)
     assert wants == pytest.approx(0.30 * INCOME, abs=0.1)
@@ -258,3 +258,12 @@ def test_manual_actuals_ignored_for_card_categories():
 def test_presets_sum_to_income_to_the_cent(method, income):
     df = suggested_allocations(method, income)
     assert round(df["Budgeted Amount"].sum(), 2) == income
+
+
+def test_investing_is_a_manually_tracked_budget_category():
+    assert "Investing" in BUDGET_CATEGORIES and "Investing" in NON_CARD_CATEGORIES
+    df = suggested_allocations("50/30/20", INCOME)
+    assert _amount(df, "Investing") > 0  # shares the 20% savings bucket
+    allocations = pd.DataFrame({"Category": ["Investing"], "Budgeted Amount": [400.0]})
+    row = budget_vs_actual(allocations, None, {"Investing": 150.0}).query("Category == 'Investing'").iloc[0]
+    assert row["Actual Amount"] == 150.0 and row["Variance"] == 250.0

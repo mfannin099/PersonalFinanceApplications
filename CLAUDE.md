@@ -79,9 +79,11 @@ the standalone UIs.
     `tests/test_budgeting.py`), parallel to `CreditCard/analytics.py`:
     - `BUDGET_CATEGORIES` — most of `CreditCard.categorize.CATEGORIES`
       reused verbatim (so a categorized card transaction maps into the
-      budget with no translation layer), plus three categories that never
-      appear on a card statement: `Rent/Mortgage`, `Savings`,
-      `Debt Payments`. Exceptions to "verbatim": `"Money out"` and
+      budget with no translation layer), plus four categories that never
+      appear on a card statement: `Rent/Mortgage`, `Savings`, `Investing`,
+      `Debt Payments` (`Investing` shares the 50/30/20 savings bucket, weight
+      10; under Pay Yourself First it's weighted in the remainder, not the
+      off-the-top savings). Exceptions to "verbatim": `"Money out"` and
       `"Fees & Adjustments"` are excluded entirely (not budget line items —
       see Notes below); `"Shopping"` is relabeled `"Misc Shopping"`; and
       `"Bills & Utilities"` is relabeled `"Bills & Utilities (+ Insurance)"`
@@ -112,10 +114,10 @@ the standalone UIs.
       against every other directly — `Savings` competes on the same
       footing as spending categories instead of a guaranteed 20% floor.
     - `budget_vs_actual` — budgeted vs. actual $ per category, with
-      variance/%-used/status, for driving the progress bars. The three
+      variance/%-used/status, for driving the progress bars. The four
       non-card categories never appear on a card statement, so their actual
       comes only from the optional user-entered `manual_actuals` argument
-      ({category: $}, 0 if missing). In `Budget/app.py` these are three `$`
+      ({category: $}, 0 if missing). In `Budget/app.py` these are four `$`
       inputs under "Manually tracked spending" at the top of the Budget vs.
       Actual card (session-only, like everything else); the rows show a
       "Manually entered" note and have no drill-down accordion item.
