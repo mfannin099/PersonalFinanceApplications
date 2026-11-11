@@ -21,7 +21,7 @@ uv run shiny run FinanceHub/app.py
 ```
 
 - **Home** — upload a credit card CSV once (or try the synthetic sample data),
-  check merchant categories, and see spend, budget and savings at a glance.
+  check merchant categories.
   Category fixes are remembered per merchant and apply everywhere.
 - **Spending** — filters, Venmo splits, spend by category/merchant/weekday/time,
   share of wallet, needs vs. wants, and money-saving opportunities

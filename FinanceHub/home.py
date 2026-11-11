@@ -1,4 +1,4 @@
-"""Home: upload the statement once, fix categories once, see all three areas at a glance."""
+"""Home: upload the statement once and fix categories once; every section reads the same data."""
 
 from pathlib import Path
 
@@ -8,7 +8,7 @@ from shiny import module, reactive, render, req, ui
 from Budget.statement import read_statement_csv
 from CreditCard.categorize import CATEGORIES, load_overrides, save_override
 from CreditCard.cleaning import clean_statement
-from FinanceHub.shared import StatementState, card_header, empty_state, icon, kpi, money
+from FinanceHub.shared import StatementState, card_header, icon, money
 from FinanceHub.signals import sample_statement
 
 
@@ -32,7 +32,6 @@ def home_ui() -> ui.Tag:
             ),
             col_widths={"xs": (12, 12), "lg": (7, 5)},
         ),
-        ui.output_ui("kpis"),
         ui.output_ui("review"),
     )
 
@@ -86,38 +85,6 @@ def home_server(input, output, session, state: StatementState):
                 for g, t, d in items
             ]
         )
-
-    @render.ui
-    def kpis():
-        df = state.categorized()
-        if df is None:
-            return None
-        total = df["Amount"].sum()
-        days = max((df["Transaction Date"].max() - df["Transaction Date"].min()).days + 1, 1)
-        by_cat = df.groupby("Category")["Amount"].sum().sort_values(ascending=False)
-        top = by_cat.index[0]
-        boxes = [
-            kpi("Total spend", money(total), f"{len(df):,} purchases", "cash-stack"),
-            kpi("Per day", money(total / days), f"over {days} days", "calendar3"),
-            kpi("Top category", top, f"{money(by_cat.iloc[0])} · {by_cat.iloc[0] / total:.0%} of spend", "pie-chart"),
-        ]
-        budget = state.budget()
-        if budget:
-            over = budget["over"]
-            boxes.append(
-                kpi(
-                    "Budget (last 30 days)",
-                    f"{money(budget['spent'])} of {money(budget['budgeted'])}",
-                    f"{over} categor{'y' if over == 1 else 'ies'} over budget" if over else "nothing over budget",
-                    "wallet2",
-                    class_="signal-bearish" if over else "signal-bullish",
-                )
-            )
-            if budget["savings"] > 0:
-                boxes.append(kpi("Monthly savings plan", money(budget["savings"]), "from your Budget allocations", "piggy-bank"))
-        else:
-            boxes.append(kpi("Budget", "Not set up", "set income & allocations in Budget", "wallet2"))
-        return ui.div(*boxes, class_="metric-grid mb-3")
 
     @reactive.calc
     def merchant_categories() -> pd.DataFrame:

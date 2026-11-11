@@ -219,20 +219,6 @@ def budget_server(input, output, session, state: StatementState):
     def has_actuals() -> bool:
         return recent() is not None or any(v > 0 for v in manual_actuals().values())
 
-    @reactive.effect
-    def _publish():
-        r = result()
-        state.budget.set(
-            {
-                "spent": float(r["Actual Amount"].sum()),
-                "budgeted": float(r["Budgeted Amount"].sum()),
-                "over": int((r["Status"].isin(["Over", "No Budget"])).sum()),
-                "savings": float(r.loc[r["Category"] == "Savings", "Budgeted Amount"].sum()),
-            }
-            if r["Budgeted Amount"].sum() > 0
-            else None
-        )
-
     @reactive.calc
     def shown() -> pd.DataFrame:
         r = result()

@@ -17,14 +17,12 @@ class StatementState:
     the keyword rules plus the saved per-merchant overrides. Saving an override
     calls ``bump()``, which makes every section that reads ``categorized()``
     recompute — that's the "one upload, every view agrees" part of the blend.
-    ``budget`` is published by the Budget section so Home can summarize it.
     """
 
     def __init__(self) -> None:
         self.cleaned = reactive.Value(None)
         self.source = reactive.Value("")
         self.version = reactive.Value(0)
-        self.budget = reactive.Value(None)
 
         @reactive.calc
         def categorized() -> pd.DataFrame | None:
@@ -37,7 +35,6 @@ class StatementState:
     def load(self, cleaned: pd.DataFrame, source: str) -> None:
         self.cleaned.set(cleaned)
         self.source.set(source)
-        self.budget.set(None)
 
     def bump(self) -> None:
         self.version.set(self.version.get() + 1)

@@ -275,10 +275,9 @@ the standalone UIs.
   `sys.path` and imports everything package-qualified.
   - `shared.py` — `StatementState`: one uploaded statement (`cleaned`) and a
     `categorized()` calc shared by Spending and Budget; saving a category
-    override calls `bump()` so both recompute. Budget publishes a summary
-    (`state.budget`) that Home shows. Also KPI/card/figure helpers.
+    override calls `bump()` so both recompute. Also KPI/card/figure helpers.
   - `home.py` — upload (via `Budget.statement.read_statement_csv` +
-    `clean_statement`), a synthetic "Try sample data" button, KPIs, and the
+    `clean_statement`), a synthetic "Try sample data" button, and the
     category review (one "Save" button; only changed merchants are written to
     the shared `merchant_overrides.json`).
   - `spending.py` — the CreditCard dashboard ported to Plotly: filters,
