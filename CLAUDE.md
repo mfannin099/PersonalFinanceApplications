@@ -170,10 +170,11 @@ per folder, run separately).
 - `Stocks/` — "Stock Studio", a **Shiny for Python** app (replaced an
   earlier Streamlit "coming soon" placeholder). Multi-ticker (up to 5)
   price analysis from Yahoo Finance via `yfinance`.
-  - `app.py` — entry point, run with `uv run shiny run Stocks/app.py`.
-    Shiny puts `Stocks/` on `sys.path`, so it imports `forecast`/
-    `fundamentals`/`market_data` locally (like the Streamlit app); tests use
-    `Stocks.xxx`. Charts are Plotly via `shinywidgets` (`render_widget`).
+  - `studio.py` — the whole UI + server as a Shiny module (`stocks_ui`/
+    `stocks_server`), imported package-qualified (`Stocks.forecast`) and shared
+    by `app.py` and `FinanceHub`. `app.py` is a thin standalone shell
+    (`uv run shiny run Stocks/app.py`; puts the project root on `sys.path`).
+    The rest of this section describes the module's behaviour. Charts are Plotly via `shinywidgets` (`render_widget`).
     Prices are fetched only on "Run analysis" (`@reactive.event(input.run,
     ignore_none=False)`, so it also runs once on load); MA type/windows and
     forecast horizon recompute live on the loaded data. Overview tab: growth
@@ -212,8 +213,12 @@ per folder, run separately).
   - `ml_forecast.py` — pure: a small XGBoost model (button-triggered "ML
     Forecast" tab) predicting the **forward return** over the horizon, not the
     price (trees can't extrapolate price levels). Time-based features only
-    (lagged returns, momentum, volatility, distance from SMA20/50, day of
-    week/month). Fixed shallow params (`PARAMS`, depth 2) — deliberately no
+    (lagged returns, momentum, volatility, distance from a fast/slow moving
+    average, day of week/month). The moving-average features are customizable
+    (SMA or EMA, fast/slow windows, default SMA 20/50; `clean_ma`/`DEFAULT_MA`,
+    feature names `dist_ma_fast`/`dist_ma_slow`). `FEATURE_INFO` explains every
+    feature in plain language and feeds the "What each feature means" card
+    (with an Importance column after training) and the importance chart labels. Fixed shallow params (`PARAMS`, depth 2) — deliberately no
     tuning. Validated by expanding-window walk-forward with a `horizon`-day
     purge gap and scored vs. naive baselines (skill, hit rate vs. always-up,
     correlation); the 80% band is the empirical 10-90% quantile of OOS errors.
@@ -252,6 +257,31 @@ per folder, run separately).
     `fetch_closes`/`fetch_info`/`fetch_statements` hit Yahoo and are `lru_cache`d keyed by
     today's date. Unknown tickers come back from Yahoo as all-NaN columns,
     not errors, so `fetch_closes` drops and reports them.
+- `FinanceHub/` — the blended app: Spending + Budget + Stocks in one **Shiny
+  for Python** app (`uv run shiny run FinanceHub/app.py`). `page_navbar` with
+  Home / Spending / Budget / Stocks; each section is a Shiny module
+  (`@module.ui`/`@module.server`). `app.py` puts the project root on
+  `sys.path` and imports everything package-qualified.
+  - `shared.py` — `StatementState`: one uploaded statement (`cleaned`) and a
+    `categorized()` calc shared by Spending and Budget; saving a category
+    override calls `bump()` so both recompute. Budget publishes a summary
+    (`state.budget`) that Home shows. Also KPI/card/figure helpers.
+  - `home.py` — upload (via `Budget.statement.read_statement_csv` +
+    `clean_statement`), a synthetic "Try sample data" button, KPIs, and the
+    category review (one "Save" button; only changed merchants are written to
+    the shared `merchant_overrides.json`).
+  - `spending.py` — the CreditCard dashboard ported to Plotly: filters,
+    Venmo splits (select rows in a data grid, then mark as split — replaces
+    Streamlit's editable table), the overview/weekday/over-time/category-over
+    -time charts, and Money Saving signals. Filters fall back to "everything"
+    until the (possibly collapsed) sidebar renders them.
+  - `signals.py` — pure `savings_signals` (the four signals + recommendations)
+    and `sample_statement`; tested in `tests/test_hub.py`.
+  - `budget.py` — the Budget Studio planner ported: income/Gross-Net, preset
+    suggestions into per-category numeric inputs (replace-confirm modal),
+    manual actuals, progress rows + chart on the last 30 days, CSV/PDF export.
+    Reuses `Budget.budgeting`/`Budget.export` unchanged. Session-only.
+  - Stocks is mounted from `Stocks/studio.py` (see below).
 - `tests/` — pytest for `CreditCard/cleaning.py`, `CreditCard/categorize.py`,
   `CreditCard/analytics.py`, `Budget/budgeting.py`, `Budget/export.py`,
   `Budget/statement.py`, and `Stocks/`'s pure modules (`tests/test_stocks.py`,

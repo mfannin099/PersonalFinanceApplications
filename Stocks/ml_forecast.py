@@ -21,6 +21,8 @@ import numpy as np
 import pandas as pd
 from xgboost import XGBRegressor
 
+from Stocks.forecast import MA_KINDS, moving_average
+
 PARAMS = {
     "n_estimators": 200,
     "max_depth": 2,  # shallow: each tree can combine at most two features
@@ -51,21 +53,69 @@ PARAM_BOUNDS = {
 # The only things auto-tune searches: tree depth and learning rate. Small on purpose —
 # every extra option searched is another chance to pick one that fits past noise by luck.
 TUNE_GRID = [{"max_depth": d, "learning_rate": lr} for d in (1, 2, 3) for lr in (0.02, 0.05)]
-FEATURE_WARMUP_DAYS = 63  # longest feature lookback
+FEATURE_WARMUP_DAYS = 63  # longest fixed feature lookback (a slower moving average can lengthen it)
+DEFAULT_MA = {"kind": "SMA", "fast": 20, "slow": 50}  # the trend features' moving averages (customizable)
+MA_BOUNDS = (2, 200)
 BAND_QUANTILES = (0.10, 0.90)
 
 FEATURE_GROUPS = {
     "Recent returns": ["ret_lag1", "ret_lag2", "ret_lag3", "ret_lag5"],
     "Momentum": ["mom_5", "mom_21", "mom_63"],
     "Volatility": ["vol_10", "vol_21"],
-    "Trend (vs. moving average)": ["dist_sma20", "dist_sma50"],
+    "Trend (vs. moving average)": ["dist_ma_fast", "dist_ma_slow"],
     "Calendar": ["day_of_week", "month"],
 }
 FEATURES = [name for names in FEATURE_GROUPS.values() for name in names]
 
+# Plain-language description of every feature: (readable label, what it measures, how the model may use it).
+FEATURE_INFO = {
+    "ret_lag1": ("Today's return", "The stock's log return on the latest day.", "Tests whether a big move today tends to continue (momentum) or reverse (mean reversion)."),
+    "ret_lag2": ("Return 1 day ago", "The log return the day before.", "Same idea, one day back — helps separate a one-day spike from a sustained move."),
+    "ret_lag3": ("Return 2 days ago", "The log return two days before.", "Short-term memory of the last few sessions."),
+    "ret_lag5": ("Return 4 days ago", "The log return four days before.", "Reaches back to roughly the start of the trading week."),
+    "mom_5": ("5-day momentum", "Price change over the last 5 trading days.", "A week-long trend; strongly positive may signal continuation or an overextended bounce."),
+    "mom_21": ("1-month momentum", "Price change over the last 21 trading days (~1 month).", "The classic medium-term trend signal."),
+    "mom_63": ("3-month momentum", "Price change over the last 63 trading days (~1 quarter).", "A slower trend; captures the direction the stock has been heading for a quarter."),
+    "vol_10": ("10-day volatility", "Standard deviation of daily returns over 10 days.", "Recent turbulence. Calm and stormy periods behave differently, so trees can split on it."),
+    "vol_21": ("1-month volatility", "Standard deviation of daily returns over 21 days.", "A steadier read on how jumpy the stock has been."),
+    "dist_ma_fast": ("Distance from fast average", "How far today's price sits above (+) or below (−) the fast moving average, as a %.", "Stretched far above its average can mean overheated; far below, oversold — or a real breakdown."),
+    "dist_ma_slow": ("Distance from slow average", "How far today's price sits above (+) or below (−) the slow moving average, as a %.", "Shows where price is relative to the long-run trend."),
+    "day_of_week": ("Day of week", "Monday=0 … Friday=4 for the latest day.", "Lets the model look for weekday patterns — usually weak or spurious."),
+    "month": ("Month of year", "1–12 for the latest day.", "Lets the model look for seasonality — usually weak with only a few years of data."),
+}
+FEATURE_LABELS = {k: v[0] for k, v in FEATURE_INFO.items()}
 
-def build_features(close: pd.Series) -> pd.DataFrame:
-    """Features for every day, using only information available at that day's close."""
+
+def ma_feature_labels(ma: dict | None = None) -> dict[str, str]:
+    """``FEATURE_LABELS`` with the two trend features named after the chosen moving averages."""
+    ma = clean_ma(ma)
+    labels = dict(FEATURE_LABELS)
+    labels["dist_ma_fast"] = f"Distance from {ma['fast']}-day {ma['kind']}"
+    labels["dist_ma_slow"] = f"Distance from {ma['slow']}-day {ma['kind']}"
+    return labels
+
+
+def clean_ma(ma: dict | None) -> dict:
+    """Validated moving-average settings for the trend features (``kind``, ``fast``, ``slow``).
+
+    Raises ``ValueError`` for an unknown kind, windows outside ``MA_BOUNDS``, or fast >= slow.
+    """
+    out = {**DEFAULT_MA, **{k: v for k, v in (ma or {}).items() if v is not None}}
+    if out["kind"] not in MA_KINDS:
+        raise ValueError(f"Moving-average type must be one of {', '.join(MA_KINDS)}.")
+    out["fast"], out["slow"] = int(out["fast"]), int(out["slow"])
+    low, high = MA_BOUNDS
+    if not (low <= out["fast"] < out["slow"] <= high):
+        raise ValueError(f"Moving-average windows must satisfy {low} ≤ fast < slow ≤ {high} days.")
+    return out
+
+
+def build_features(close: pd.Series, ma: dict | None = None) -> pd.DataFrame:
+    """Features for every day, using only information available at that day's close.
+
+    ``ma`` customizes the trend features: ``{"kind": "SMA" | "EMA", "fast": 20, "slow": 50}``.
+    """
+    ma = clean_ma(ma)
     close = close.dropna()
     log_ret = np.log(close).diff()
     feats = pd.DataFrame(index=close.index)
@@ -75,8 +125,8 @@ def build_features(close: pd.Series) -> pd.DataFrame:
         feats[f"mom_{window}"] = np.log(close / close.shift(window))
     for window in (10, 21):
         feats[f"vol_{window}"] = log_ret.rolling(window).std()
-    for window in (20, 50):
-        feats[f"dist_sma{window}"] = close / close.rolling(window).mean() - 1
+    for name, window in (("fast", ma["fast"]), ("slow", ma["slow"])):
+        feats[f"dist_ma_{name}"] = close / moving_average(close, window, ma["kind"]) - 1
     feats["day_of_week"] = close.index.dayofweek
     feats["month"] = close.index.month
     return feats[FEATURES]
@@ -204,12 +254,13 @@ def train_and_forecast(
     params: dict | None = None,
     features: list[str] | None = None,
     auto_tune: bool = False,
+    ma: dict | None = None,
 ) -> dict:
     """Validate, then fit on all data and project ``horizon`` trading days ahead.
 
     ``params`` overrides the defaults (clamped to ``PARAM_BOUNDS``), ``features`` limits the
     model to a subset of ``FEATURES``, and ``auto_tune`` searches ``TUNE_GRID`` (nested, so the
-    scorecard stays honest). Raises ``ValueError`` on too little history or no features.
+    scorecard stays honest). ``ma`` sets the trend features' moving averages (see ``build_features``). Raises ``ValueError`` on too little history or no features.
 
     The result holds the predicted return/price and an empirical 80% band (from the
     out-of-sample errors, so it reflects how wrong the model actually was), the walk-forward
@@ -223,8 +274,9 @@ def train_and_forecast(
     if not features:
         raise ValueError("Select at least one feature.")
     base = clean_params(params)
+    ma = clean_ma(ma)
 
-    feats = build_features(close).dropna()
+    feats = build_features(close, ma).dropna()
     target = forward_return(close, horizon)
     labelled = feats.join(target.rename("target")).dropna()
     if int(len(labelled) * 0.6) - horizon < MIN_TRAIN_ROWS:  # the first fold must still have enough to train on
@@ -264,4 +316,5 @@ def train_and_forecast(
         "features": features,
         "params": {k: final_params[k] for k in PARAM_BOUNDS},
         "auto_tuned": auto_tune,
+        "ma": ma,
     }

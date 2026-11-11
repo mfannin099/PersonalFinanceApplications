@@ -24,6 +24,19 @@
         "8001"
       ],
       "port": 8001
+    },
+    {
+      "name": "hub",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "shiny",
+        "run",
+        "FinanceHub/app.py",
+        "--port",
+        "8002"
+      ],
+      "port": 8002
     }
   ]
 }
