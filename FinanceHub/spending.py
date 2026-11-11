@@ -397,9 +397,9 @@ def spending_server(input, output, session, state: StatementState):
         if frame.empty:
             body = ui.div("None found with these settings.", class_="section-sub")
         else:
-            rows = [ui.tags.tr(ui.tags.td(r.Description), ui.tags.td(str(r._2), class_="text-end")) for r in frame.head(12).itertuples()]
-            body = ui.tags.table(ui.tags.tbody(*rows), class_="table fundamentals-table mb-0")
-        return ui.div(ui.div(icon(glyph, "me-2"), title, ui.span(f" · {len(frame)}", class_="section-sub"), class_="fw-semibold mb-2"), body, class_="signal-box")
+            rows = [ui.tags.tr(ui.tags.td(r.Description), ui.tags.td(str(r._2), class_="text-end")) for r in frame.itertuples()]
+            body = ui.div(ui.tags.table(ui.tags.tbody(*rows), class_="table fundamentals-table mb-0"), class_="signal-scroll")
+        return ui.div(ui.div(icon(glyph, "me-2"), title, ui.span(f" · {len(frame)} merchant{'' if len(frame) == 1 else 's'}", class_="section-sub"), class_="fw-semibold mb-2"), body, class_="signal-box")
 
     @render.ui
     def signal_tables():

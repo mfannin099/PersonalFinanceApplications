@@ -27,3 +27,5 @@
 .prog-fill.near { background: #f08c00; }
 .prog-fill.over { background: #e03131; }
 .shiny-input-container:not(.shiny-input-container-inline) .form-label { margin-bottom: 0.25rem; }
+.signal-scroll { max-height: 320px; overflow-y: auto; }
+.signal-box .fundamentals-table td { color: var(--ink); }
