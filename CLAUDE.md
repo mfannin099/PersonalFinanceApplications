@@ -1,9 +1,18 @@
 # PersonalFinanceApplications
 
-Personal finance tools. One `uv` project/venv at this root covers all
-sub-apps, but each folder is an independent app (Streamlit, Dash or Shiny) with its
-own `app.py` entry point — there is no shared nav shell by design (one app
-per folder, run separately).
+Personal finance tools. One `uv` project/venv at this root covers everything.
+
+**`FinanceHub/` is the final, recommended application** — a single Shiny for
+Python app (Home / Spending / Budget / Stocks) and the one to use as the
+personal finance hub. It was chosen over Streamlit and Dash because Shiny's
+reactive model suits the expensive, button-gated work (Yahoo fetches, XGBoost)
+and its modules let the three apps share one shell and one uploaded
+statement. `CreditCard/` (Streamlit), `Budget/` (Dash) and `Stocks/` (Shiny)
+remain as standalone apps with their own `app.py`, but they are now **legacy
+entry points**: their pure logic modules (`analytics`, `categorize`,
+`cleaning`, `budgeting`, `export`, `statement`, `forecast`, ...) are reused by
+the hub, so keep them, and put new features in the hub rather than extending
+the standalone UIs.
 
 ## Structure
 
@@ -284,7 +293,7 @@ per folder, run separately).
   - Stocks is mounted from `Stocks/studio.py` (see below).
 - `tests/` — pytest for `CreditCard/cleaning.py`, `CreditCard/categorize.py`,
   `CreditCard/analytics.py`, `Budget/budgeting.py`, `Budget/export.py`,
-  `Budget/statement.py`, and `Stocks/`'s pure modules (`tests/test_stocks.py`,
+  `Budget/statement.py`, `FinanceHub/signals.py` (`tests/test_hub.py`), and `Stocks/`'s pure modules (`tests/test_stocks.py`,
   synthetic data only — never the network) (imported there via
   the `CreditCard.`/`Budget.` package paths, since pytest runs from the
   project root — only each Streamlit app's own `app.py` uses local imports;
@@ -297,6 +306,8 @@ historical reference but is no longer maintained.
 ## Running
 
 ```bash
+uv run shiny run FinanceHub/app.py   # the main app: Finance Hub (Shiny)
+# Legacy standalone apps:
 uv run streamlit run CreditCard/app.py
 uv run python -m Budget.app   # Dash, not Streamlit — see Structure above
 uv run shiny run Stocks/app.py   # Shiny for Python
